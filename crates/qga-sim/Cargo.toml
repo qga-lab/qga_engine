@@ -1,0 +1,11 @@
+[package]
+name = "qga-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Realm worldgen, Hopf-guided N-body, and photonic OAM–flux analog"
+
+[dependencies]
+qga-math.workspace = true
+glam.workspace = true
+rayon.workspace = true

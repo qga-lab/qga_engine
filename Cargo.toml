@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/qga-math",
+    "crates/qga-sim",
+    "crates/qga-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["kinaar8340"]
+repository = "https://github.com/kinaar8340/qga_engine"
+description = "Native GPU graphics engine for QGA realms, Hopf/flux solar-system simulation, and photonic OAM–flux analog (arXiv:2607.16520)"
+readme = "README.md"
+
+[workspace.dependencies]
+qga-math = { path = "crates/qga-math" }
+qga-sim = { path = "crates/qga-sim" }
+qga-gpu = { git = "https://github.com/kinaar8340/qga_gpu", features = ["winit", "headless", "capture", "glow"] }
+
+glam = "0.29"
+bytemuck = { version = "1.22", features = ["derive"] }
+wgpu = "24.0"
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "wayland", "wayland-dlopen", "x11"] }
+pollster = "0.4"
+rayon = "1.10"
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
+clap = { version = "4.5", features = ["derive"] }
+web-time = "1.1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+panic = "abort"
+
+[profile.dev]
+opt-level = 1

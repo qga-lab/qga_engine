@@ -1,0 +1,11 @@
+[package]
+name = "qga-math"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Quaternions, Hopf fibration, gauged lattice, and flux topographs"
+
+[dependencies]
+glam.workspace = true
+
+[dev-dependencies]

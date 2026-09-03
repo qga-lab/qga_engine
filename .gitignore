@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+*.png
+!docs/**/*.png
+capture/
+captures/
+.env
+.venv/
+__pycache__/
+*.pdb
