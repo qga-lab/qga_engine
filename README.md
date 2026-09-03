@@ -20,8 +20,7 @@ crates/qga-sim     realm worldgen, nebula ICs, OAM–flux PDE, Lorenz analog
 crates/qga-app     window, input, scenes, GPU N-body  → binary `qga-engine`
 ```
 
-`qga-gpu` is a git dependency (`features = ["winit", "headless", "capture", "glow"]`).
-`Cargo.lock` pins the sha. Realm / cosmos / oam / reveal stay here.
+`qga-gpu` is pinned at `rev = "f263ea7"` (`features = ["winit", "headless", "capture", "glow"]`). Realm / cosmos / oam / reveal stay here.
 
 See [DESIGN.md](DESIGN.md) for the QGA → game/sim mapping and [docs/SCENES.md](docs/SCENES.md)
 for per-scene notes.
