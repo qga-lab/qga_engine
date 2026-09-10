@@ -26,7 +26,7 @@ crates/qga-sim     realm worldgen, nebula ICs, OAM–flux PDE, Lorenz analog, Mo
 crates/qga-app     window, input, scenes, GPU N-body  → binary `qga-engine`
 ```
 
-`qga-gpu` is pinned at `rev = "b9c9994"` (`features = ["winit", "headless", "capture", "glow"]`). Realm / cosmos / oam / reveal stay here. No `v0.1.0` tag yet.
+`qga-gpu` is pinned at `rev = "b9c9994"` (`features = ["winit", "headless", "capture", "glow"]`). Realm / cosmos / oam / reveal stay here. `inner_cone` and `shellscan` git-pin `qga_engine@7e7866b` + `qga_gpu@b9c9994`. No `v0.1.0` tag. Do not float `main`.
 
 See [DESIGN.md](DESIGN.md) for the QGA → game/sim mapping and [docs/SCENES.md](docs/SCENES.md)
 for per-scene notes.
@@ -166,11 +166,12 @@ so playback matches the sim instead of the compositor. `captures/` is gitignored
 
 | Repo | Role |
 |------|------|
-| [`qga_gpu`](https://github.com/kinaar8340/qga_gpu) | wgpu/Vulkan renderer. Owns the frame. Pin by git tag. |
+| [`qga_gpu`](https://github.com/kinaar8340/qga_gpu) | wgpu/Vulkan renderer. Owns the frame. Pin `rev = "b9c9994"`, not `main`. No `v0.1.0`. |
 | [`qga`](https://github.com/kinaar8340/qga) | Manuscript + pedagogical Python |
 | [`flux_hopf_lib`](https://github.com/kinaar8340/flux_hopf_lib) | Shared math SoT |
 | [`flux_hopf_explorer`](https://github.com/kinaar8340/flux_hopf_explorer) | Three.js companion (browser) |
-| `inner_cone` | Sculpture viewer (Model). Pin `qga_gpu` / `qga-math` by git tag. |
+| [`inner_cone`](https://github.com/kinaar8340/inner_cone) | Sculpture viewer (Model). Git-pins `qga_engine@7e7866b` + `qga_gpu@b9c9994`. |
+| [`shellscan`](https://github.com/kinaar8340/shellscan) | Pixel/scan model. Same two revs as `inner_cone`. |
 
 Do not `sys.path` into sibling repos from the engine. Do not default `$QGA_PLAYGROUND` to a personal path.
 
