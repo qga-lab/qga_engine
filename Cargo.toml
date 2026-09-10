@@ -18,7 +18,7 @@ readme = "README.md"
 [workspace.dependencies]
 qga-math = { path = "crates/qga-math" }
 qga-sim = { path = "crates/qga-sim" }
-qga-gpu = { git = "https://github.com/kinaar8340/qga_gpu", rev = "f263ea7", features = ["winit", "headless", "capture", "glow"] }
+qga-gpu = { git = "https://github.com/kinaar8340/qga_gpu", rev = "523bab1", features = ["winit", "headless", "capture", "glow"] }
 
 glam = "0.29"
 bytemuck = { version = "1.22", features = ["derive"] }
