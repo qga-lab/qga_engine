@@ -8,25 +8,46 @@ on:
 
 jobs:
   test:
+    name: cargo test --workspace
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: test
         run: cargo test --workspace
 
-  smoke:
+  headless:
+    name: headless engine-proof (tiny)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: mesa
+      - uses: Swatinem/rust-cache@v2
+      - name: mesa vulkan
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
-      - name: headless
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools
+      - name: tiny cosmos engine-proof
         run: |
-          cargo run -p qga-app --release -- --headless --frames 8 --scene lab || {
-            echo "no Vulkan adapter or headless smoke failed; skipping"
+          set -o pipefail
+          if ! vulkaninfo --summary >/dev/null 2>&1; then
+            echo "no Vulkan adapter; skipping GPU smoke (not a test failure)"
             exit 0
+          fi
+          out=$(cargo run -p qga-app --release -- \
+            --headless --frames 8 --scene cosmos --profile tiny 2>&1 | tee /dev/stderr) || {
+            echo "$out" | grep -qi 'no Vulkan adapter' && {
+              echo "wgpu found no adapter; skipping GPU smoke"
+              exit 0
+            }
+            exit 1
           }
+          echo "$out" | grep -q 'engine-proof scene=cosmos' \
+            && echo "$out" | grep -q 'record_bytes=32' \
+            && echo "$out" | grep -q 'workgroup=256' \
+            && echo "$out" | grep -q 'profile=tiny' \
+            || {
+              echo "headless ran but did not print engine-proof (tiny cosmos)"
+              exit 1
+            }

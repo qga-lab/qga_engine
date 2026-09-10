@@ -35,7 +35,7 @@ for per-scene notes.
 
 | Target | What to run |
 |--------|-------------|
-| Headless CI | `make headless` (`--profile tiny`, skip if no adapter) |
+| Headless CI | `make headless` (`--profile tiny`, skip if no adapter). GitHub Actions: `cargo test --workspace` + that engine-proof string. |
 | Laptop demo | `--profile demo --scene lab` |
 | 4090 lab | `--profile this_box` (default) |
 
