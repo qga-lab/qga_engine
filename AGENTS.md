@@ -45,9 +45,9 @@ classical|kingdom`, `--integrator euler|verlet`, `--diag`, `--fibers-json`,
 `--profile` selects the row. `this_box` glow 1.15.
 
 ## Consumers
-inner_cone path-depends on ../qga_engine/crates/qga-math and qga-sim, and on
-../qga_gpu/crates/qga-gpu. Do not change record layout without coordinating
-with qga_gpu.
+inner_cone pins `qga_engine@7e7866b` and `qga_gpu@b9c9994` (git rev). Do not
+change record layout without coordinating with qga_gpu. shellscan may still
+path-dep until it switches.
 
 qga-gpu git dep is pinned `rev = "b9c9994"` in Cargo.toml. Cargo.lock is
-not the pin. Do not float main. No v0.1.0 tag until path-dep consumers switch.
+not the pin. Do not float main. No v0.1.0 tag until every consumer pins a rev.
