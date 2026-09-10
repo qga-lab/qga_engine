@@ -18,7 +18,8 @@ readme = "README.md"
 [workspace.dependencies]
 qga-math = { path = "crates/qga-math" }
 qga-sim = { path = "crates/qga-sim" }
-qga-gpu = { git = "https://github.com/kinaar8340/qga_gpu", rev = "523bab1", features = ["winit", "headless", "capture", "glow"] }
+# Pin a published sha, never main. No v0.1.0 tag until consumers drop sibling paths.
+qga-gpu = { git = "https://github.com/kinaar8340/qga_gpu", rev = "b9c999406e266a585769a4804c6968de0e6d2237", features = ["winit", "headless", "capture", "glow"] }
 
 glam = "0.29"
 bytemuck = { version = "1.22", features = ["derive"] }

@@ -1,5 +1,10 @@
 # QGA Engine
 
+Spine: [`qga`](https://github.com/kinaar8340/qga) — manuscript + pedagogical Python  
+Shared math: [`flux_hopf_lib`](https://github.com/kinaar8340/flux_hopf_lib)  
+Engine: this repo (scenes, Rust math) · [`qga_gpu`](https://github.com/kinaar8340/qga_gpu) (frame)  
+This repo: scenes, Rust math port, sims. Not the swapchain / upload path.
+
 Native GPU graphics engine for **Kingdom Come / QGA** worlds, Hopf/flux
 solar-system simulation, and the photonic OAM–flux analog of
 [arXiv:2607.16520](https://arxiv.org/abs/2607.16520).
@@ -11,8 +16,9 @@ not a Python call at runtime. The look — bioluminescent fibers, flux motes,
 void backdrop — comes from
 [`flux_hopf_explorer`](https://github.com/kinaar8340/flux_hopf_explorer).
 
-Renderer claims are **Software fact**. QGA maps (Z-map, 350/π, Magic Islands)
-are **Model**, not theorems of this binary.
+Renderer claims are **Software fact**. QGA maps (Z-map, Magic Islands) used as
+worldgen are **Model** in the HUD, not theorems of this binary. \(350/\pi\) is
+a Hypothesis; do not paint it as a lattice theorem. Attack it in [`op5`](https://github.com/kinaar8340/op5).
 
 ```
 crates/qga-math    quaternions, Hopf, Hurwitz lattice, flux topographs
@@ -20,12 +26,20 @@ crates/qga-sim     realm worldgen, nebula ICs, OAM–flux PDE, Lorenz analog
 crates/qga-app     window, input, scenes, GPU N-body  → binary `qga-engine`
 ```
 
-`qga-gpu` is pinned at `rev = "523bab1"` (`features = ["winit", "headless", "capture", "glow"]`). Realm / cosmos / oam / reveal stay here.
+`qga-gpu` is pinned at `rev = "b9c9994"` (`features = ["winit", "headless", "capture", "glow"]`). Realm / cosmos / oam / reveal stay here. No `v0.1.0` tag yet.
 
 See [DESIGN.md](DESIGN.md) for the QGA → game/sim mapping and [docs/SCENES.md](docs/SCENES.md)
 for per-scene notes.
 
-## Hardware target (this machine)
+## Hardware targets
+
+| Target | What to run |
+|--------|-------------|
+| Laptop demo | `--scene lab --fibers 64` |
+| 4090 lab | defaults below |
+| Headless CI | `make headless` (skip if no adapter) |
+
+### Lab (4090)
 
 | | |
 |---|---|
@@ -141,14 +155,12 @@ so playback matches the sim instead of the compositor. `captures/` is gitignored
 
 | Repo | Role |
 |------|------|
-| [`qga_gpu`](https://github.com/kinaar8340/qga_gpu) | wgpu/Vulkan renderer. Owns the frame |
-| [`qga`](https://github.com/kinaar8340/qga) | Manuscript + Python lib (source of math) |
-| [`flux_hopf_lib`](https://github.com/kinaar8340/flux_hopf_lib) | Hopf maps, κ / θ_crit / W_g |
+| [`qga_gpu`](https://github.com/kinaar8340/qga_gpu) | wgpu/Vulkan renderer. Owns the frame. Pin by git tag. |
+| [`qga`](https://github.com/kinaar8340/qga) | Manuscript + pedagogical Python |
+| [`flux_hopf_lib`](https://github.com/kinaar8340/flux_hopf_lib) | Shared math SoT |
 | [`flux_hopf_explorer`](https://github.com/kinaar8340/flux_hopf_explorer) | Three.js companion (browser) |
-| `inner_cone` | Sculpture viewer; path-depends on `qga_gpu`, math from this tree |
+| `inner_cone` | Sculpture viewer (Model). Pin `qga_gpu` / `qga-math` by git tag. |
 
-Do not `sys.path` into sibling repos from the engine.
+Do not `sys.path` into sibling repos from the engine. Do not default `$QGA_PLAYGROUND` to a personal path.
 
-## License
-
-MIT — same ecosystem as qga / flux_hopf_lib / flux_hopf_explorer / qga_gpu.
+Geometry libraries are MIT. Several VQC repos are PolyForm Noncommercial plus patent notice US 63/913,110. This repo is MIT.

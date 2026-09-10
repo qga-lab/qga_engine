@@ -45,6 +45,5 @@ inner_cone path-depends on ../qga_engine/crates/qga-math and qga-sim, and on
 ../qga_gpu/crates/qga-gpu. Do not change record layout without coordinating
 with qga_gpu.
 
-qga-gpu git dep is pinned `rev = "523bab1"` in Cargo.toml. Cargo.lock is
-not the pin. GPU origin/main is that sha. Do not float main. Bump `rev`
-before a record-layout change on qga_gpu main can land silently.
+qga-gpu git dep is pinned `rev = "b9c9994"` in Cargo.toml. Cargo.lock is
+not the pin. Do not float main. No v0.1.0 tag until path-dep consumers switch.

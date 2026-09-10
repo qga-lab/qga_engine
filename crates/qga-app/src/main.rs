@@ -99,6 +99,7 @@ struct Args {
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    qga_gpu::print_claim_banner("OP1–OP6 / inner_cone mosaic");
     let args = Args::parse();
 
     // 3900X: 12c/24t. Leave a couple of logical cores for the compositor.

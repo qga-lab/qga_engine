@@ -1500,7 +1500,7 @@ dependencies = [
 [[package]]
 name = "qga-gpu"
 version = "0.1.0"
-source = "git+https://github.com/kinaar8340/qga_gpu?rev=523bab1#523bab1bc941721b67a4b596e5383c71d6ee2a4c"
+source = "git+https://github.com/kinaar8340/qga_gpu?rev=b9c999406e266a585769a4804c6968de0e6d2237#b9c999406e266a585769a4804c6968de0e6d2237"
 dependencies = [
  "anyhow",
  "bytemuck",
