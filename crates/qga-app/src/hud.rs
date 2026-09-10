@@ -337,14 +337,12 @@ pub fn build_realm_hud(convention: &str, ley: usize, roads: usize, clock_line: &
 pub fn build_lab_hud(convention: &str, clock_line: &str) -> Vec<HudVert> {
     let mut v = Vec::with_capacity(256);
     hud_text(&mut v, -0.96, 0.97, 0.011, convention, COL_TEXT);
-    hud_text(
-        &mut v,
-        -0.96,
-        0.91,
-        0.010,
-        "Kingdom is legacy_portal_map — not Hopf. Fork is the feature.",
-        COL_R,
-    );
+    let note = if convention.contains("Kingdom") {
+        "Kingdom is legacy_portal_map — not Hopf. Fork is the feature."
+    } else {
+        "Classical Hopf — Chapter 2 / hopf_hurwitz_v1. Not the portal pin."
+    };
+    hud_text(&mut v, -0.96, 0.91, 0.010, note, COL_R);
     hud_text(&mut v, -0.96, 0.86, 0.010, clock_line, COL_TEXT);
     v
 }

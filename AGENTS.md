@@ -35,7 +35,7 @@ CLI: `--scene`, `--fibers`, `--particles`, `--ell`, `--kappa`, `--headless`,
 `--frames`, `--width`, `--height`, `--species`, `--avatars`, `--host`,
 `--dump-species`, `--preset`, `--profile tiny|demo|this_box`, `--convention
 classical|kingdom`, `--integrator euler|verlet`, `--diag`, `--fibers-json`,
-`--dump-png`.
+`--dump-png`, `--dump-mp4`, `--tour`, `--clock`, `--diag-pe`.
 `$QGA_PLAYGROUND` (default `/home/kinaar/Playground`) for species/avatar JSON.
 
 ## Defaults (HardwareProfile rows)

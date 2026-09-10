@@ -160,9 +160,13 @@ struct Args {
     #[arg(long, value_enum, default_value_t = IntegratorArg::Euler)]
     integrator: IntegratorArg,
 
-    /// Cosmos energy / |L_z| diagnostic (K + U_star + U_spring). Software fact, not a paper.
+    /// Cosmos |L_z| + cheap E-bound (omits pair PE). Software fact, not a paper.
     #[arg(long)]
     diag: bool,
+
+    /// Host all-pairs Plummer PE in the bound, only when n ≤ 8192. Not a GPU force.
+    #[arg(long)]
+    diag_pe: bool,
 
     /// Load flux_hopf_lib `export_fiber_curves` JSON into lab / realm (and cosmos sky).
     #[arg(long)]
@@ -171,6 +175,18 @@ struct Args {
     /// After headless steps, grab one offscreen PNG (engine-owned still, not UploadStats).
     #[arg(long)]
     dump_png: Option<PathBuf>,
+
+    /// Record every headless frame to MP4 (NVENC / libx264). Engine stills, not UploadStats.
+    #[arg(long)]
+    dump_mp4: Option<PathBuf>,
+
+    /// Cosmos: start the `5` tour (star → clumps → pull-back).
+    #[arg(long)]
+    tour: bool,
+
+    /// Initial sim clock in seconds (realm crane offset, fibre phase).
+    #[arg(long, default_value_t = 0.0)]
+    clock: f32,
 }
 
 fn main() -> Result<()> {
@@ -210,8 +226,12 @@ impl From<Args> for app::Launch {
             convention: a.convention.map(Into::into),
             integrator: a.integrator.into(),
             diag: a.diag,
+            diag_pe: a.diag_pe,
             fibers_json: a.fibers_json,
             dump_png: a.dump_png,
+            dump_mp4: a.dump_mp4,
+            tour: a.tour,
+            clock: a.clock,
         };
         if let Some(id) = a.preset.as_deref() {
             let root = PathBuf::from(

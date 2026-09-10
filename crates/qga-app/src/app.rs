@@ -17,9 +17,10 @@ use qga_gpu::{
 };
 use qga_math::{sample_fiber_family, Fiber, HopfConvention};
 use qga_sim::{
-    analog_legend, detect_clumps, generate_realm, left_rotor, quantize_nbody, restamp_family,
-    right_rotor, ring_radius, spawn_nebula, spawn_species_disk, NebulaConfig, OamConfig, OamDemo,
-    RealmConfig, RevealPanel, RevealQuad, NBODY_WORKGROUP, SPECIES_PAD_BASE,
+    analog_legend, cosmos_diag, detect_clumps, generate_realm, left_rotor, quantize_nbody,
+    restamp_family, right_rotor, ring_radius, spawn_nebula, spawn_species_disk, CosmosDiag,
+    NebulaConfig, OamConfig, OamDemo, RealmConfig, RevealPanel, RevealQuad, NBODY_WORKGROUP,
+    SPECIES_PAD_BASE,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -49,8 +50,12 @@ pub struct Launch {
     pub convention: Option<HopfConvention>,
     pub integrator: Integrator,
     pub diag: bool,
+    pub diag_pe: bool,
     pub fibers_json: Option<PathBuf>,
     pub dump_png: Option<PathBuf>,
+    pub dump_mp4: Option<PathBuf>,
+    pub tour: bool,
+    pub clock: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -58,6 +63,27 @@ struct GaugeOverlay {
     fibers: Vec<Fiber>,
     scale: f32,
     radius: f32,
+}
+
+/// HUD string. Kernel gravity is still tiled all-pairs. Only this bound
+/// may omit pair U. |L_z| is the conserved quantity `--diag` can show.
+fn cosmos_diag_line(d: &CosmosDiag) -> String {
+    match d.pair {
+        Some(up) => format!(
+            "|Lz|={:.3} E-BOUND +PAIR PE K={:.3} Up={:.3} Us={:.3}",
+            d.lz.abs(),
+            d.kinetic,
+            up,
+            d.spring
+        ),
+        None => format!(
+            "|Lz|={:.3} E-BOUND OMIT PAIR PE K={:.3} U*={:.3} Us={:.3}",
+            d.lz.abs(),
+            d.kinetic,
+            d.star,
+            d.spring
+        ),
+    }
 }
 
 pub fn run_headless(launch: Launch) -> Result<()> {
@@ -77,7 +103,7 @@ pub fn run_headless(launch: Launch) -> Result<()> {
     } else {
         None
     };
-    load_scene(
+    let (ley_n, road_n) = load_scene(
         &gpu,
         &mut renderer,
         &mut nbody,
@@ -93,24 +119,193 @@ pub fn run_headless(launch: Launch) -> Result<()> {
         sync_reveal(&gpu, &mut renderer, demo)?;
     }
     let n = launch.frames.max(1);
+    let dt = 1.0 / record::RECORD_FPS as f32;
+    let mut time = launch.clock;
+    let mut tour = launch.tour;
+    let mut tour_t = 0.0f32;
+    let mut clumps: Vec<PlanetMarker> = Vec::new();
+    let mut cam = Camera::orbit(Vec3::ZERO, 8.5);
+    apply_camera_for_scene(&mut cam, launch.scene);
+    if launch.clock > 0.0 {
+        match launch.scene {
+            SceneKind::Realm => {
+                let peak = Vec3::new(qga_math::SHASTA_XZ.0, 11.2, qga_math::SHASTA_XZ.1);
+                camera_rig::tick_cinematic_shasta(&mut cam, 0.0, launch.clock, peak);
+            }
+            SceneKind::Cosmos if !tour => {
+                camera_rig::tick_cinematic_cosmos(&mut cam, 0.0, launch.clock);
+            }
+            SceneKind::Oam => camera_rig::tick_cinematic_oam(&mut cam, 0.0, launch.clock),
+            _ => {}
+        }
+    }
+    let vis = VisualState {
+        glow: launch.profile.glow,
+        ..VisualState::default()
+    };
+    let mut rec = if let Some(path) = launch.dump_mp4.as_ref() {
+        Some(record::VideoRecorder::start_to(
+            path.clone(),
+            launch.width,
+            launch.height,
+        )?)
+    } else {
+        None
+    };
+    let want_present = rec.is_some() || launch.dump_png.is_some();
+    let conv = scene_convention(launch.scene, launch.convention);
+    let conv_line = format!("Hopf {}", convention_label(conv));
+    let mut energy_log: Vec<f32> = Vec::new();
     let t0 = Instant::now();
     for i in 0..n {
+        time += dt;
         if launch.scene == SceneKind::Cosmos {
             if let Some(nb) = nbody.as_mut() {
                 let sub = nb.substeps();
                 nb.step(&gpu, sub);
+                if want_present {
+                    let g = nb.params().g;
+                    let kappa = nb.params().kappa;
+                    let eps2 = nb.params().eps2;
+                    let parts = nb.download(&gpu)?;
+                    if i % 30 == 0 {
+                        let cpu: Vec<qga_sim::Particle> = parts
+                            .iter()
+                            .map(|p| qga_sim::Particle {
+                                pos: p.pos.into(),
+                                mass: p.mass,
+                                vel: p.vel.into(),
+                                pad: p.pad,
+                            })
+                            .collect();
+                        clumps = detect_clumps(&cpu, 8)
+                            .into_iter()
+                            .map(|c| PlanetMarker {
+                                pos: c.pos,
+                                count: c.count,
+                                radius: c.radius,
+                                color: Vec3::new(1.0, 0.72, 0.28),
+                            })
+                            .collect();
+                    }
+                    if (launch.diag || launch.diag_pe) && i % 60 == 0 {
+                        let cpu: Vec<qga_sim::Particle> = parts
+                            .iter()
+                            .map(|p| qga_sim::Particle {
+                                pos: p.pos.into(),
+                                mass: p.mass,
+                                vel: p.vel.into(),
+                                pad: p.pad,
+                            })
+                            .collect();
+                        let d = if launch.diag_pe {
+                            qga_sim::cosmos_diag_pe(&cpu, g, kappa, eps2)
+                        } else {
+                            cosmos_diag(&cpu, g, kappa)
+                        };
+                        energy_log.push(d.bound());
+                        println!("cosmos-diag-seq frame={} {}", i + 1, cosmos_diag_line(&d));
+                    }
+                    let display = convert::display_particles(parts, launch.palette);
+                    renderer.write_particles(&gpu, &display)?;
+                }
             }
         }
         if let Some(demo) = oam.as_mut() {
-            demo.step(1.0 / 60.0);
-            sync_oam(&gpu, &mut renderer, demo, &launch)?;
+            demo.step(dt);
+            if want_present {
+                sync_oam(&gpu, &mut renderer, demo, &launch)?;
+            }
         }
         if let Some(demo) = reveal.as_mut() {
-            demo.step(1.0 / 60.0);
-            sync_reveal(&gpu, &mut renderer, demo)?;
+            if i == n / 2 {
+                demo.set_panel(RevealPanel::D);
+            }
+            demo.step(dt);
+            if want_present {
+                sync_reveal(&gpu, &mut renderer, demo)?;
+            }
+        }
+        if let Some(ov) = overlay.as_ref() {
+            if matches!(
+                launch.scene,
+                SceneKind::Lab | SceneKind::Realm | SceneKind::Cosmos
+            ) {
+                let stamped = restamp_family(
+                    &ov.fibers,
+                    left_rotor(time),
+                    right_rotor(time),
+                    ov.scale,
+                );
+                renderer.write_live_fibers(&gpu, &convert::gpu_fibers(&stamped), ov.radius)?;
+            }
+        }
+        if want_present {
+            let clock = fibre_clock_line(time);
+            match launch.scene {
+                SceneKind::Lab => {
+                    renderer.write_hud(&gpu, &build_lab_hud(&conv_line, &clock))?;
+                }
+                SceneKind::Realm => {
+                    renderer.write_hud(
+                        &gpu,
+                        &build_realm_hud(&conv_line, ley_n, road_n, &clock),
+                    )?;
+                }
+                SceneKind::Cosmos => {
+                    let diag_line = if launch.diag || launch.diag_pe {
+                        nbody.as_mut().and_then(|nb| {
+                            nb.diag(&gpu, launch.diag_pe).ok().map(|d| cosmos_diag_line(&d))
+                        })
+                    } else {
+                        None
+                    };
+                    renderer.write_hud(
+                        &gpu,
+                        &build_cosmos_hud(
+                            false,
+                            0,
+                            false,
+                            0,
+                            false,
+                            false,
+                            &format!("{conv_line}  clumps {}", clumps.len()),
+                            diag_line.as_deref(),
+                            &clock,
+                        ),
+                    )?;
+                }
+                SceneKind::Oam | SceneKind::Reveal => {}
+            }
+            match launch.scene {
+                SceneKind::Cosmos if tour => {
+                    camera_rig::tick_tour(&mut cam, dt, &mut tour_t, &clumps);
+                }
+                SceneKind::Cosmos => {
+                    camera_rig::tick_cinematic_cosmos(&mut cam, dt, time);
+                }
+                SceneKind::Realm => {
+                    let peak = Vec3::new(qga_math::SHASTA_XZ.0, 11.2, qga_math::SHASTA_XZ.1);
+                    camera_rig::tick_cinematic_shasta(&mut cam, dt, time, peak);
+                }
+                SceneKind::Oam => {
+                    let t = oam.as_ref().map(|d| d.visual_time()).unwrap_or(time);
+                    camera_rig::tick_cinematic_oam(&mut cam, dt, t);
+                }
+                SceneKind::Lab => {
+                    cam.yaw += 0.12 * dt;
+                }
+                SceneKind::Reveal => {
+                    cam.yaw += 0.15 * dt;
+                }
+            }
+            let grabbed = renderer.render(&mut gpu, &cam, &vis, time, rec.is_some())?;
+            if let (Some(rec), Some(frame)) = (rec.as_mut(), grabbed) {
+                rec.push_bgra(frame.width, frame.height, &frame.bgra)?;
+            }
         }
         gpu.device.poll(wgpu::Maintain::Wait);
-        if i == 0 || i + 1 == n {
+        if i == 0 || i + 1 == n || (i + 1) % 120 == 0 {
             log::info!("frame {} / {}", i + 1, n);
         }
     }
@@ -153,23 +348,45 @@ pub fn run_headless(launch: Launch) -> Result<()> {
         renderer.fiber_count(),
         n_part
     );
-    if launch.diag {
+    if let Some(rec) = rec.take() {
+        let path = rec.finish()?;
+        println!("dump-mp4 {}", path.display());
+    }
+    if energy_log.len() >= 3 {
+        let mut flips = 0u32;
+        for w in energy_log.windows(3) {
+            let d0 = w[1] - w[0];
+            let d1 = w[2] - w[1];
+            if d0 * d1 < 0.0 {
+                flips += 1;
+            }
+        }
+        let (mn, mx) = energy_log
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), x| (a.min(*x), b.max(*x)));
+        println!(
+            "energy-log n={} min={:.4} max={:.4} sign_flips={} {}",
+            energy_log.len(),
+            mn,
+            mx,
+            flips,
+            if flips >= 1 { "oscillates" } else { "marches" }
+        );
+    }
+    if launch.diag || launch.diag_pe {
         if let Some(nb) = nbody.as_mut() {
             let p = nb.params();
-            let d = nb.diag(&gpu)?;
+            let d = nb.diag(&gpu, launch.diag_pe)?;
             println!(
-                "cosmos-diag K={:.4} Ustar={:.4} Uspring={:.4} bound={:.4} |Lz|={:.4} n={} dt={} kappa={}  (not all-pairs)",
-                d.kinetic,
-                d.star,
-                d.spring,
+                "cosmos-diag {} bound={:.4} n={} dt={} kappa={}",
+                cosmos_diag_line(&d),
                 d.bound(),
-                d.lz.abs(),
                 d.n,
                 p.dt,
                 p.kappa
             );
         } else {
-            anyhow::bail!("--diag energy readback requires --scene cosmos");
+            anyhow::bail!("--diag / --diag-pe requires --scene cosmos");
         }
     }
     if let Some(path) = launch.dump_species.as_ref() {
@@ -194,7 +411,7 @@ pub fn run_headless(launch: Launch) -> Result<()> {
             glow: launch.profile.glow,
             ..VisualState::default()
         };
-        let grabbed = renderer.render(&mut gpu, &cam, &vis, n as f32 / 60.0, true)?;
+        let grabbed = renderer.render(&mut gpu, &cam, &vis, time, true)?;
         match grabbed {
             Some(frame) => {
                 record::save_png_to(path, frame.width, frame.height, &frame.bgra)?;
@@ -499,18 +716,11 @@ impl EngineApp {
             let clock = fibre_clock_line(self.time);
             match self.scene {
                 SceneKind::Cosmos => {
-                    let diag_line = if self.launch.diag {
+                    let diag_line = if self.launch.diag || self.launch.diag_pe {
                         self.nbody.as_mut().and_then(|nb| {
-                            nb.diag(gpu).ok().map(|d| {
-                                format!(
-                                    "K={:.3} U*={:.3} Us={:.3} |Lz|={:.3} {} (not all-pairs)",
-                                    d.kinetic,
-                                    d.star,
-                                    d.spring,
-                                    d.lz.abs(),
-                                    self.launch.integrator.name()
-                                )
-                            })
+                            nb.diag(gpu, self.launch.diag_pe)
+                                .ok()
+                                .map(|d| cosmos_diag_line(&d))
                         })
                     } else {
                         None

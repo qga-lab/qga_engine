@@ -33,9 +33,10 @@ replaces the Hopf family only.
 Tiled all-pairs N-body on the 4090 (`nbody.wgsl`, workgroup 256) plus a sky
 ley of 48 × 96 fibers (Classical unless `--convention`). Semi-implicit Euler
 is the default integrator; `--integrator verlet` is velocity Verlet with
-cached *a* (same symplectic family, one force eval per step). `--diag` reads
-back K + U_star + U_spring and |L_z| — a Software-fact diagnostic, not a
-flywheel theorem. Host refuses huge √κ Δt by auto-substepping.
+cached *a* (same symplectic family, one force eval per step). `--diag` reads |L_z| and a cheap E-bound that **omits pair PE** (HUD:
+`E-BOUND OMIT PAIR PE`). The WGSL kernel is still tiled all-pairs gravity.
+`--diag-pe` (n≤8192) adds host pair U. Not a flywheel theorem. Host refuses
+huge √κ Δt by auto-substepping.
 
 Default 262 144 bodies, cap 524 288, `quantize_nbody` to 256. ICs:
 `spawn_nebula` (Kepler dusty disk + Hopf swirl + central seed) or

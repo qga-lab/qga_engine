@@ -41,11 +41,11 @@ Hold `--profile demo` unless the box is the 4090 (`this_box`). 1920×1080,
 glow on, mailbox off (FIFO). Claim line stays on the first card of each shot.
 
 1. **Lab, Kingdom pin (8 s).** `--scene lab`. Title card: “Kingdom is legacy_portal_map — not Hopf.” Tubes clock on `xi2`.
-2. **Lab, Classical (8 s).** `--convention classical`. Same camera. The family must *look* different. If it does not, the fork is broken.
+2. **Lab, Classical (8 s).** `--convention classical`. Same camera. HUD + \(S^2\) palette differ; \(\mathbb{R}^3\) tubes stay the same embedding. Do not invent a second curve set — the fork is `hopf_map` then `color_from_base`, not a second stereographic family.
 3. **JSON overlay (6 s).** `--fibers-json` explorer export. Same lab camera. Proves the engine consumes `export_fiber_curves` without Python at runtime.
 4. **Realm establishing (20 s).** Crane grove → cone. HUD: ley/road counts, Model tag, fibre clock.
 5. **Realm fly (12 s).** RMB through sequoias toward Crownhold. Roads as brown hairlines, ley as live tubes (right-phase). Terrain does not spin — left-multiply is the fibre overlay, not a heightmap rotate.
-6. **Cosmos collapse (30 s).** `--scene cosmos --integrator verlet --diag`. Crane pull-back. HUD energy should *oscillate*, not march. If it marches, dt / 1.01 ε² self-cut is wrong.
+6. **Cosmos collapse (30 s).** `--scene cosmos --integrator verlet --diag`. Crane pull-back. HUD: `|Lz|` is the conserved quantity this line can show. `E-BOUND OMIT PAIR PE` is K+U\*+Uspring (pair U omitted). The kernel is still tiled all-pairs gravity. `--diag-pe` (n≤8192) adds host pair PE; do not clip this as “not N-body.” Do not title the disk a flux-flywheel proof.
 7. **Cosmos tour (25 s).** Press `5` after clumps appear. Star → 2–8 overdensities → pull-back. Clump detection is a polar-bin overdensity of the snapshot.
 8. **Iris palette (10 s).** `--preset hazel` then `P` through brown/blue. Geometry held, hues only.
 9. **OAM pump→relax (25 s).** `--scene oam --ell 3 --kappa 0.85`. S curve vs R / e⁻². Title reports golden ℓ.
@@ -61,7 +61,7 @@ sequoias at 32² blow out. After this branch is on main, shoot:
 |------|---------|-----|
 | lab + `--fibers-json` | tiny is fine | fixture path |
 | realm ley/roads | demo or this_box | only scale where planting holds |
-| cosmos Verlet + `--diag` | demo | energy / L_z readable |
+| cosmos Verlet + `--diag` | demo | \|L_z\| + E-BOUND OMIT PAIR PE |
 | oam Classical HUD | tiny/demo | convention must be on-screen |
 | reveal | tiny | not Hopf; keep it last |
 
@@ -145,7 +145,7 @@ A still or 8-frame headless dump is not enough. For anything that *moves*:
 1. Lab Kingdom vs Classical must not match (fixture already forbids Kingdom from satisfying `hopf_hurwitz_v1`).
 2. Right-phase restamp must move lab tubes; left-only restamp must move them *differently* (unit tests in `qga-sim::gauge`).
 3. Realm stills must show both ley ribbons and road hairlines, with HUD Model tag.
-4. Cosmos `--diag` energy after 8 tiny Verlet steps is finite; tour with clumps nonempty after a disk has run.
+4. Cosmos `--diag`: `|Lz|` finite; HUD says `E-BOUND OMIT PAIR PE` (not “not all-pairs”). Tour with clumps nonempty after a disk has run.
 5. `--fibers-json` on lab uploads without calling Python.
 
 Then shoot the reel. Then stop. Phase 8 is a spine note, not another pass of bloom.

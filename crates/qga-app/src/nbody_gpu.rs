@@ -7,7 +7,10 @@
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use qga_gpu::{GpuContext, GpuParticle};
-use qga_sim::{cosmos_diag, nbody_substeps, CosmosDiag, Particle, NBODY_WORKGROUP};
+use qga_sim::{
+    cosmos_diag, cosmos_diag_pe, nbody_substeps, CosmosDiag, Particle, DIAG_PE_N_MAX,
+    NBODY_WORKGROUP,
+};
 use wgpu::util::DeviceExt;
 
 #[repr(u32)]
@@ -248,7 +251,7 @@ impl NbodyGpu {
         Ok(&self.cpu)
     }
 
-    pub fn diag(&mut self, gpu: &GpuContext) -> Result<CosmosDiag> {
+    pub fn diag(&mut self, gpu: &GpuContext, pair_pe: bool) -> Result<CosmosDiag> {
         let parts = self.download(gpu)?;
         let cpu: Vec<Particle> = parts
             .iter()
@@ -259,7 +262,20 @@ impl NbodyGpu {
                 pad: p.pad,
             })
             .collect();
-        Ok(cosmos_diag(&cpu, self.sim.g, self.sim.kappa))
+        if pair_pe {
+            if cpu.len() > DIAG_PE_N_MAX {
+                log::warn!(
+                    "--diag-pe skipped: n={} > {}",
+                    cpu.len(),
+                    DIAG_PE_N_MAX
+                );
+                Ok(cosmos_diag(&cpu, self.sim.g, self.sim.kappa))
+            } else {
+                Ok(cosmos_diag_pe(&cpu, self.sim.g, self.sim.kappa, self.sim.eps2))
+            }
+        } else {
+            Ok(cosmos_diag(&cpu, self.sim.g, self.sim.kappa))
+        }
     }
 
     fn dispatch(&mut self, gpu: &GpuContext, which: Pass, n_substeps: u32) {

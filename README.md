@@ -121,8 +121,10 @@ cargo run -p qga-app --release -- --headless --frames 32 --scene cosmos \
 Default scene is `realm`. Window default 1920×1080 (`--width` / `--height`).
 `--profile tiny|demo|this_box` selects counts. `--convention classical|kingdom`
 overrides the scene default (lab = Kingdom portal pin; else Classical).
-`--integrator verlet` and `--diag` are cosmos Software-fact options.
-`--fibers-json` loads `export_fiber_curves` into lab/realm/cosmos sky.
+`--integrator verlet` and `--diag` are cosmos Software-fact options
+(`E-BOUND OMIT PAIR PE`; kernel gravity is still tiled all-pairs).
+`--diag-pe` adds host pair PE when n≤8192. `--dump-mp4`, `--tour`, `--clock`
+record the reel. `--fibers-json` loads `export_fiber_curves` into lab/realm/cosmos sky.
 `--dump-png PATH` grabs one offscreen still after headless steps.
 See [docs/VISUALS.md](docs/VISUALS.md) for the demo shot list.
 

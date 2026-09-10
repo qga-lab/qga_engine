@@ -97,6 +97,15 @@ pub struct VideoRecorder {
 impl VideoRecorder {
     pub fn start(width: u32, height: u32) -> Result<Self> {
         let path = captures_dir()?.join(format!("qga-{}.mp4", stamp()));
+        Self::start_to(path, width, height)
+    }
+
+    pub fn start_to(path: PathBuf, width: u32, height: u32) -> Result<Self> {
+        if let Some(dir) = path.parent() {
+            if !dir.as_os_str().is_empty() {
+                std::fs::create_dir_all(dir).ok();
+            }
+        }
         let (child, stdin) = spawn_encoder(width, height, &path, true)
             .or_else(|e| {
                 log::warn!("h264_nvenc unavailable ({e:#}); falling back to libx264");

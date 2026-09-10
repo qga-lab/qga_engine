@@ -312,19 +312,25 @@ pub fn nbody_substeps(dt: f32, kappa: f32, g: f32, softening: f32, m_heavy: f32)
 }
 
 /// Cheap cosmos diagnostic: kinetic + midplane spring + star–disk PE + L_z.
-/// Not all-pairs energy (that is O(n²)). Software fact, not a flywheel theorem.
+/// Pair PE is **not** in the GPU step. Optional host all-pairs U is `--diag-pe`
+/// and only when n ≤ [`DIAG_PE_N_MAX`]. Software fact, not a flywheel theorem.
 #[derive(Clone, Copy, Debug)]
 pub struct CosmosDiag {
     pub kinetic: f32,
     pub spring: f32,
     pub star: f32,
+    /// All-pairs Plummer PE when `--diag-pe` ran. `None` means omitted.
+    pub pair: Option<f32>,
     pub lz: f32,
     pub n: u32,
 }
 
+pub const DIAG_PE_N_MAX: usize = 8192;
+
 impl CosmosDiag {
+    /// K + U_spring + (pair PE if present, else star–disk U*).
     pub fn bound(&self) -> f32 {
-        self.kinetic + self.spring + self.star
+        self.kinetic + self.spring + self.pair.unwrap_or(self.star)
     }
 }
 
@@ -334,6 +340,7 @@ pub fn cosmos_diag(particles: &[Particle], g: f32, kappa: f32) -> CosmosDiag {
             kinetic: 0.0,
             spring: 0.0,
             star: 0.0,
+            pair: None,
             lz: 0.0,
             n: 0,
         };
@@ -357,9 +364,32 @@ pub fn cosmos_diag(particles: &[Particle], g: f32, kappa: f32) -> CosmosDiag {
         kinetic,
         spring,
         star,
+        pair: None,
         lz,
         n: particles.len() as u32,
     }
+}
+
+/// Host all-pairs Plummer PE. Matches the kernel's 1.01 ε² self-cut.
+/// Not a GPU force term. No-op (pair stays None) when n > [`DIAG_PE_N_MAX`].
+pub fn cosmos_diag_pe(particles: &[Particle], g: f32, kappa: f32, eps2: f32) -> CosmosDiag {
+    let mut d = cosmos_diag(particles, g, kappa);
+    if particles.len() > DIAG_PE_N_MAX || particles.len() < 2 {
+        return d;
+    }
+    let cut = eps2 * 1.01;
+    let mut pair = 0.0f32;
+    for i in 0..particles.len() {
+        for j in (i + 1)..particles.len() {
+            let r = particles[j].pos - particles[i].pos;
+            let r2 = r.dot(r) + eps2;
+            if r2 > cut {
+                pair += -g * particles[i].mass * particles[j].mass / r2.sqrt();
+            }
+        }
+    }
+    d.pair = Some(pair);
+    d
 }
 
 #[cfg(test)]
@@ -408,6 +438,10 @@ mod tests {
         assert!((d.lz - 1.0).abs() < 1e-5);
         assert!(d.kinetic > 0.0);
         assert!(d.star < 0.0);
+        assert!(d.pair.is_none());
+        let pe = cosmos_diag_pe(&p, 1.0, 0.0, 0.0);
+        assert!(pe.pair.is_some());
+        assert!((pe.pair.unwrap() + 10.0).abs() < 1e-4);
     }
 
     #[test]

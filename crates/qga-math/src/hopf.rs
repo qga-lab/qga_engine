@@ -126,7 +126,8 @@ pub fn sample_fiber(
         points,
         s3,
         base,
-        color: color_from_eta(eta),
+        // Palette only: R³ tubes are the same S³ circles. The fork is S².
+        color: color_from_base(base),
     }
 }
 
@@ -149,6 +150,16 @@ pub fn color_from_eta(eta: f32) -> Vec3 {
     let cyan = Vec3::new(0.25, 0.85, 1.0);
     let gold = Vec3::new(0.95, 0.75, 0.28);
     cyan.lerp(gold, t)
+}
+
+/// Color from the convention's S² base. Kingdom vs Classical must not match.
+/// Direct RGB of (x,y,z) so the fork is the palette, not a second tube geometry.
+pub fn color_from_base(base: Vec3) -> Vec3 {
+    Vec3::new(
+        (base.x * 0.5 + 0.5).clamp(0.08, 0.95),
+        (base.y * 0.5 + 0.5).clamp(0.08, 0.95),
+        (base.z * 0.5 + 0.5).clamp(0.08, 0.95),
+    )
 }
 
 /// Recover rough Hopf angles from S³ coordinates (portal chart).
@@ -213,5 +224,25 @@ mod tests {
     fn unit_norm() {
         let q = hopf_coordinates(0.7, 0.3, 1.1);
         assert!((q.norm() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn kingdom_and_classical_share_s3_tubes_but_not_base_or_color() {
+        let a = sample_fiber(0.6, 1.2, 32, 2.0, HopfConvention::Classical);
+        let b = sample_fiber(0.6, 1.2, 32, 2.0, HopfConvention::Kingdom);
+        assert_eq!(a.points.len(), b.points.len());
+        for (p, q) in a.points.iter().zip(b.points.iter()) {
+            assert!((*p - *q).length() < 1e-5, "R³ tubes are the same S³ circles");
+        }
+        assert!(
+            (a.base - b.base).length() > 0.05,
+            "S² base must fork: {:?}",
+            (a.base, b.base)
+        );
+        assert!(
+            (a.color - b.color).length() > 0.05,
+            "displayed color must fork: {:?}",
+            (a.color, b.color)
+        );
     }
 }
