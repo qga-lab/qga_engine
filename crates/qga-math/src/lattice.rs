@@ -4,7 +4,8 @@ use crate::hopf::{angles_from_q, hopf_map, HopfConvention};
 use crate::quat::Q;
 use glam::Vec3;
 
-/// The 24 Hurwitz units on S³: ±1, ±i, ±j, ±k and (±1±i±j±k)/2.
+/// The 24 Hurwitz units on S³. Same order as `flux_hopf_lib.HURWITZ_UNITS`
+/// / `hurwitz_units_v1.json`. Cardinality is a theorem; order is a Software fact.
 pub fn hurwitz_units() -> [Q; 24] {
     let mut units = [Q::IDENTITY; 24];
     let mut n = 0;

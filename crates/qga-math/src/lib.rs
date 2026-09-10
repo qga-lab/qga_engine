@@ -1,8 +1,8 @@
 //! Quaternion / Hopf / gauged-lattice / flux-topograph core.
 //!
-//! Ports of `qga/lib` (classical Hopf, Hurwitz, gauge, topographs) and the
-//! maps in `flux_hopf_lib.hopf` / `.constants`. This crate is the engine's
-//! source of truth — do not call Python at runtime.
+//! Checked Rust port of `flux_hopf_lib` (Hopf, Hurwitz 24) and `qga/lib`
+//! book labs (gauge, topographs). Not a third algebra. Do not call Python
+//! at runtime. Golden vectors: `tests/fixtures/*_v1.json`.
 
 mod constants;
 mod hopf;

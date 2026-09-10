@@ -1,8 +1,8 @@
 //! Hopf fibration S³ → S², stereographic projection, fiber sampling.
 //!
-//! Two map conventions live side by side (QGA Ch. 2):
-//! - [`HopfConvention::Classical`] — complex form used by the QGA lattice.
-//! - [`HopfConvention::Kingdom`] — real form used by `flux_hopf_lib` / explorer.
+//! - [`HopfConvention::Classical`] — QGA Chapter 2 / `flux_hopf_lib.hopf.hopf_map`.
+//!   Fixture `hopf_hurwitz_v1`. No `||y||` renormalize on unit input.
+//! - [`HopfConvention::Kingdom`] — `legacy_portal_map`. Model / portal pin, not Hopf.
 
 use crate::quat::Q;
 use glam::{Vec3, Vec4};
@@ -22,22 +22,26 @@ pub fn hopf_coordinates(eta: f32, xi1: f32, xi2: f32) -> Q {
     Q::new(ce * c1, ce * s1, se * c2, se * s2)
 }
 
-/// Classical complex Hopf map (QGA book default).
+/// Classical real Hopf map (QGA Chapter 2 / `flux_hopf_lib.hopf.hopf_map`).
+///
+/// `y1=2(x1 x3+x2 x4)`, `y2=2(x1 x4-x2 x3)`, `y3=x1²+x2²-x3²-x4²`.
+/// Unit input is not re-normalized by `||y||`.
 pub fn hopf_map_classical(q: Q) -> Vec3 {
-    let (w, x, y, z) = (q.w(), q.x(), q.y(), q.z());
-    let y1 = w * w + x * x - y * y - z * z;
-    let y2 = 2.0 * (w * y + x * z);
-    let y3 = 2.0 * (w * z - x * y);
-    let v = Vec3::new(y1, y2, y3);
-    let n = v.length();
-    if n < 1e-14 {
+    let (x1, x2, x3, x4) = (q.w(), q.x(), q.y(), q.z());
+    let y1 = 2.0 * (x1 * x3 + x2 * x4);
+    let y2 = 2.0 * (x1 * x4 - x2 * x3);
+    let y3 = x1 * x1 + x2 * x2 - x3 * x3 - x4 * x4;
+    let n2 = x1 * x1 + x2 * x2 + x3 * x3 + x4 * x4;
+    if n2 < 1e-14 {
         Vec3::X
+    } else if (n2 - 1.0).abs() > 1e-6 {
+        Vec3::new(y1, y2, y3) / n2
     } else {
-        v / n
+        Vec3::new(y1, y2, y3)
     }
 }
 
-/// Kingdom Come real-form Hopf map (`flux_hopf_lib.hopf.hopf_map`).
+/// `legacy_portal_map`. Not a Hopf map. Kept so portal pins stay bit-identical.
 pub fn hopf_map_kingdom(q: Q) -> Vec3 {
     let (x1, x2, x3, x4) = (q.w(), q.x(), q.y(), q.z());
     let y1 = x1 * x1 - x2 * x2;
@@ -174,12 +178,17 @@ mod tests {
     }
 
     #[test]
-    fn classical_hopf_match_python() {
+    fn classical_hopf_is_chapter2_formula() {
         let q = hopf_coordinates(0.6, 1.2, 0.0);
+        let (x1, x2, x3, x4) = (q.w(), q.x(), q.y(), q.z());
         let y = hopf_map_classical(q);
-        assert!((y.x - 0.36235775).abs() < 1e-5);
-        assert!((y.y - 0.33773159).abs() < 1e-5);
-        assert!((y.z + 0.86869686).abs() < 1e-5);
+        let y1 = 2.0 * (x1 * x3 + x2 * x4);
+        let y2 = 2.0 * (x1 * x4 - x2 * x3);
+        let y3 = x1 * x1 + x2 * x2 - x3 * x3 - x4 * x4;
+        assert!((y.x - y1).abs() < 1e-6);
+        assert!((y.y - y2).abs() < 1e-6);
+        assert!((y.z - y3).abs() < 1e-6);
+        assert!((y.length() - 1.0).abs() < 1e-5);
     }
 
     #[test]
