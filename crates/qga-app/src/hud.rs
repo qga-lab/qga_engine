@@ -14,8 +14,9 @@ const COL_ENV: [f32; 4] = [0.20, 0.62, 1.0, 0.95];
 const COL_FLUX: [f32; 4] = [1.0, 0.40, 0.08, 0.95];
 const COL_TEXT: [f32; 4] = [0.92, 0.95, 1.0, 0.92];
 
-pub fn build_oam_hud(hud: &OamHud) -> Vec<HudVert> {
+pub fn build_oam_hud(hud: &OamHud, convention: &str) -> Vec<HudVert> {
     let mut v = Vec::with_capacity(4096);
+    hud_text(&mut v, 0.05, 0.97, 0.010, convention, COL_TEXT);
     let x0 = -0.96;
     let x1 = -0.42;
     let y0 = -0.94;
@@ -222,8 +223,16 @@ pub fn build_cosmos_hud(
     view_ix: usize,
     grid: bool,
     tabs_hidden: bool,
+    convention: &str,
+    diag_line: Option<&str>,
+    clock_line: &str,
 ) -> Vec<HudVert> {
     let mut v = Vec::with_capacity(4096);
+    hud_text(&mut v, -0.96, 0.99, 0.010, convention, COL_TEXT);
+    hud_text(&mut v, 0.12, 0.99, 0.010, clock_line, COL_TEXT);
+    if let Some(d) = diag_line {
+        hud_text(&mut v, -0.96, -0.96, 0.010, d, COL_S);
+    }
     if !tabs_hidden {
         draw_dropdown(
             &mut v,
@@ -300,6 +309,50 @@ pub fn view_hit(ndc_x: f32, ndc_y: f32, open: bool) -> Option<i32> {
         VIEW_X1,
         VIEW_LABELS.len() as i32,
     )
+}
+
+pub fn build_realm_hud(convention: &str, ley: usize, roads: usize, clock_line: &str) -> Vec<HudVert> {
+    let mut v = Vec::with_capacity(512);
+    hud_text(&mut v, -0.96, 0.97, 0.011, convention, COL_TEXT);
+    hud_text(
+        &mut v,
+        -0.96,
+        0.92,
+        0.010,
+        &format!("ley {ley} along-fibre  roads {roads} inter-fibre  (Model, not OP1)"),
+        COL_TEXT,
+    );
+    hud_text(&mut v, -0.96, 0.87, 0.010, clock_line, COL_TEXT);
+    hud_text(
+        &mut v,
+        -0.96,
+        0.82,
+        0.009,
+        "names + biomes are Model",
+        COL_R,
+    );
+    v
+}
+
+pub fn build_lab_hud(convention: &str, clock_line: &str) -> Vec<HudVert> {
+    let mut v = Vec::with_capacity(256);
+    hud_text(&mut v, -0.96, 0.97, 0.011, convention, COL_TEXT);
+    hud_text(
+        &mut v,
+        -0.96,
+        0.91,
+        0.010,
+        "Kingdom is legacy_portal_map — not Hopf. Fork is the feature.",
+        COL_R,
+    );
+    hud_text(&mut v, -0.96, 0.86, 0.010, clock_line, COL_TEXT);
+    v
+}
+
+pub fn fibre_clock_line(time: f32) -> String {
+    let xi2 = (time * qga_sim::RIGHT_PHASE_RATE).rem_euclid(std::f32::consts::TAU);
+    let left = (time * qga_sim::LEFT_SPIN_RATE).rem_euclid(std::f32::consts::TAU);
+    format!("xi2={xi2:.2} right-phase (fibre clock)  left={left:.2} world gauge")
 }
 
 fn chip(v: &mut Vec<HudVert>, x: f32, y: f32, c: [f32; 4]) {

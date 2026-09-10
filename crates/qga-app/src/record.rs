@@ -38,6 +38,16 @@ fn stamp() -> String {
 /// Write one tightly packed BGRA frame as a PNG via ffmpeg.
 pub fn save_png(width: u32, height: u32, bgra: &[u8]) -> Result<PathBuf> {
     let path = captures_dir()?.join(format!("qga-{}.png", stamp()));
+    save_png_to(&path, width, height, bgra)?;
+    Ok(path)
+}
+
+pub fn save_png_to(path: &Path, width: u32, height: u32, bgra: &[u8]) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        if !dir.as_os_str().is_empty() {
+            std::fs::create_dir_all(dir).ok();
+        }
+    }
     let mut child = Command::new("ffmpeg")
         .args([
             "-hide_banner",
@@ -72,7 +82,7 @@ pub fn save_png(width: u32, height: u32, bgra: &[u8]) -> Result<PathBuf> {
             String::from_utf8_lossy(&out.stderr)
         );
     }
-    Ok(path)
+    Ok(())
 }
 
 pub struct VideoRecorder {

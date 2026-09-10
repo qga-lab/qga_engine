@@ -28,8 +28,9 @@ particle / HUD / post shaders live in `qga_gpu`. No runtime Python.
 
 | Concern | Upstream | Engine |
 |---------|----------|--------|
-| Quaternions, classical Hopf, Hurwitz 24, gauge L/R, flux topographs, Magic Islands | `qga/lib` | `qga-math` (Rust port) |
-| Kingdom real-form Hopf, stereographic pole, fiber export schema, κ / θ_crit / W_g | `flux_hopf_lib` | `qga-math` + `qga-sim` |
+| Quaternions, classical Hopf, Hurwitz 24 | `flux_hopf_lib` + fixtures `qga-math/tests/fixtures/*_v1.json` + `qga-math` parity tests | `qga-math` (checked Rust port). Pedagogical `qga/lib` is not the runtime SoT. |
+| Gauge L/R, flux topographs, Magic Islands | QGA book labs | `qga-math` |
+| Kingdom `legacy_portal_map`, stereographic pole, κ / θ_crit / W_g / λ_t / 350/π | `flux_hopf_lib` (Model) | **`qga-sim`** owns the Model numbers (`model.rs`). `qga-math` keeps copies only so path-dep consumers still compile. |
 | Tube aesthetic, LOD, flux motes, bloom, void | `flux_hopf_explorer` | [`qga_gpu`](https://github.com/kinaar8340/qga_gpu) WGSL |
 | World *meaning* (Z-map, flywheels, class group) | QGA book Ch. 3–8 | realm biomes, ley lines, sanctuaries |
 | Photonic OAM–flux analog (LG packets, λt=2 survival, golden ℓ) | `oam_flux` v0.5-preprint / arXiv:2607.16520 | `--scene oam` |
@@ -48,7 +49,8 @@ compute + raster on the same 4090 queue. CUDA 12.6 is installed and is the
 right home for later ports of `toe` / `hfb` research kernels; it is the wrong
 home for the swapchain.
 
-RTX 4090 budgets used as defaults (`HardwareProfile::THIS_BOX`, 24 GiB, Ada):
+Count policy is a three-row table (`tiny` / `demo` / `this_box`) plus CLI
+overrides. Not adapter discovery. `this_box` is the 4090 row (24 GiB, Ada):
 
 | Resource | Lab | Realm | Cosmos | OAM |
 |----------|-----|-------|--------|-----|
@@ -106,8 +108,9 @@ chart, and bound clumps that survive are Magic-Island analogues.
 Default is a 262 144-body nebula (`quantize_nbody` to 256). `--particles`
 overrides; `[` / `]` halves or doubles up to 524 288. Planets as labeled
 bodies, SPH gas, and radiative transfer are later phases. The `5` tour camera
-dwells on the star then pulls back; clump visitation is stubbed (no markers
-uploaded yet).
+dwells on the star, then on detected clumps, then pulls back. Clump detection
+is a polar-bin overdensity of the snapshot — Software fact, not a Magic-Island
+theorem.
 
 ## Photonic OAM–flux analog
 
@@ -154,8 +157,9 @@ N-body uses workgroup tiles of 256 (matches GLSL/CUDA textbook layout, maps
 cleanly onto Ada). Software fact: those sizes are `qga_gpu` contract; do not
 drift them here.
 
-`qga-app --headless` does not print `qga_gpu::UploadStats`. The renderer's
-`make headless` / `make ring` proofs do not cover these scenes.
+`qga-app --headless` prints an `engine-proof` line (scene stepped, 32-byte
+records, workgroup 256, frame count, profile, convention). It does **not**
+print `qga_gpu::UploadStats`. That counter belongs to `qga_gpu`.
 
 ## Capture
 
@@ -171,13 +175,21 @@ ribbons, realm terrain, photonic OAM–flux analog, Lorenz visualizer, PNG/MP4
 capture, bitmap HUD (OAM survival plot, cosmos preset/view tabs), six-species
 iris palettes. Optimized defaults for *this* 3900X + 4090.
 
-**v1** — mesh-shader tubes (Ada), distance LOD matching explorer `lod.js`,
-load `export_fiber_curves` JSON, print `UploadStats` from `--headless`, pin
-`qga-gpu` `rev` in `Cargo.toml` (lock already pins a sha).
+**v1 (this drop, engine-owned)** — `--headless` prints engine step proof
+(scene, 32-byte records, workgroup 256, frame count). `--dump-png` is the
+engine still (grab after N headless steps). `UploadStats` remains `qga_gpu`.
+`--fibers-json` loads `export_fiber_curves` schema v1. `--profile
+tiny|demo|this_box` plus glow scalars (0.55 / 0.85 / 1.15). Cosmos
+`--integrator verlet` + `--diag`. HUD names left-multiply (world rotor) vs
+right-multiply (ξ₂ / day clock). Clump detection is a polar-bin overdensity of
+the snapshot and feeds the `5` tour. Shot list: [docs/VISUALS.md](docs/VISUALS.md).
+
+Leave in `qga_gpu` or later: `UploadStats`, glow/bloom *shader*, tube
+extrusion, mesh-shader tubes, explorer LOD, CUDA interop (v3), RPG (v4),
+DLSS/FSR, ray-traced glow.
 
 **v2** — character controller, sanctuary fast-travel, separator-as-collision,
-Magic-Island biome paint, day cycle from right-phase, cosmos clump detection
-fed into the tour camera.
+Magic-Island biome HUD. Day-cycle and clump-tour are v1; do not list them here.
 
 **v3** — CUDA interop for `flux_hopf_lib.simulation` kernels; labeled
 planets; optional DLSS/FSR; ray-traced fiber glow.

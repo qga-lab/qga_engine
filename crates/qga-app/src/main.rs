@@ -1,6 +1,7 @@
 mod app;
 mod camera_rig;
 mod convert;
+mod fibers_json;
 mod hud;
 mod nbody_gpu;
 mod record;
@@ -9,7 +10,9 @@ mod scene;
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use hud::palette_for_preset;
-use scene::SceneKind;
+use nbody_gpu::Integrator;
+use qga_math::HopfConvention;
+use scene::{ProfileId, SceneKind};
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -31,6 +34,54 @@ impl From<SceneArg> for SceneKind {
             SceneArg::Cosmos => SceneKind::Cosmos,
             SceneArg::Oam => SceneKind::Oam,
             SceneArg::Reveal => SceneKind::Reveal,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ProfileArg {
+    Tiny,
+    Demo,
+    #[value(name = "this_box")]
+    ThisBox,
+}
+
+impl From<ProfileArg> for ProfileId {
+    fn from(p: ProfileArg) -> Self {
+        match p {
+            ProfileArg::Tiny => ProfileId::Tiny,
+            ProfileArg::Demo => ProfileId::Demo,
+            ProfileArg::ThisBox => ProfileId::ThisBox,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ConventionArg {
+    Classical,
+    Kingdom,
+}
+
+impl From<ConventionArg> for HopfConvention {
+    fn from(c: ConventionArg) -> Self {
+        match c {
+            ConventionArg::Classical => HopfConvention::Classical,
+            ConventionArg::Kingdom => HopfConvention::Kingdom,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum IntegratorArg {
+    Euler,
+    Verlet,
+}
+
+impl From<IntegratorArg> for Integrator {
+    fn from(i: IntegratorArg) -> Self {
+        match i {
+            IntegratorArg::Euler => Integrator::Euler,
+            IntegratorArg::Verlet => Integrator::Verlet,
         }
     }
 }
@@ -95,6 +146,31 @@ struct Args {
     /// (colors only — cluster geometry held). Aliases: grey, heterochromia.
     #[arg(long)]
     preset: Option<String>,
+
+    /// Count policy: tiny (CI) / demo / this_box (4090 defaults). Not adapter discovery.
+    #[arg(long, value_enum, default_value_t = ProfileArg::ThisBox)]
+    profile: ProfileArg,
+
+    /// Hopf map convention. Default: lab = Kingdom (portal pin); else Classical.
+    /// Kingdom is legacy_portal_map and is not Hopf.
+    #[arg(long, value_enum)]
+    convention: Option<ConventionArg>,
+
+    /// Cosmos integrator. Euler is the v0 default. Verlet is the same symplectic family.
+    #[arg(long, value_enum, default_value_t = IntegratorArg::Euler)]
+    integrator: IntegratorArg,
+
+    /// Cosmos energy / |L_z| diagnostic (K + U_star + U_spring). Software fact, not a paper.
+    #[arg(long)]
+    diag: bool,
+
+    /// Load flux_hopf_lib `export_fiber_curves` JSON into lab / realm (and cosmos sky).
+    #[arg(long)]
+    fibers_json: Option<PathBuf>,
+
+    /// After headless steps, grab one offscreen PNG (engine-owned still, not UploadStats).
+    #[arg(long)]
+    dump_png: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -130,6 +206,12 @@ impl From<Args> for app::Launch {
             host: a.host,
             dump_species: a.dump_species,
             palette: 0,
+            profile: ProfileId::from(a.profile).profile(),
+            convention: a.convention.map(Into::into),
+            integrator: a.integrator.into(),
+            diag: a.diag,
+            fibers_json: a.fibers_json,
+            dump_png: a.dump_png,
         };
         if let Some(id) = a.preset.as_deref() {
             let root = PathBuf::from(

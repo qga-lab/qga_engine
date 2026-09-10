@@ -1,6 +1,9 @@
 //! qga-math must match flux_hopf_lib fixtures. Not a third 24.
+//!
+//! Classical Hopf is the fixture SoT. Kingdom is `legacy_portal_map` and
+//! must not be allowed to satisfy `hopf_hurwitz_v1`.
 
-use qga_math::{hopf_map_classical, hurwitz_units, Q};
+use qga_math::{hopf_map_classical, hopf_map_kingdom, hurwitz_units, Q};
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
@@ -75,4 +78,33 @@ fn classical_default_is_not_legacy_portal() {
     assert!((y.x).abs() < 1e-6);
     assert!((y.y).abs() < 1e-6);
     assert!((y.z + 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn kingdom_must_not_satisfy_hopf_hurwitz_v1() {
+    let raw = std::fs::read_to_string(fixture("hopf_hurwitz_v1.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let points = v["points"].as_array().unwrap();
+    let units = hurwitz_units();
+    let ulp = f32::EPSILON as f64 * 8.0;
+    let mut mismatches = 0usize;
+    for (i, row) in points.iter().enumerate() {
+        let y_json: Vec<f64> = row["y"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_f64().unwrap())
+            .collect();
+        let y = hopf_map_kingdom(units[i]);
+        if (y.x as f64 - y_json[0]).abs() > ulp
+            || (y.y as f64 - y_json[1]).abs() > ulp
+            || (y.z as f64 - y_json[2]).abs() > ulp
+        {
+            mismatches += 1;
+        }
+    }
+    assert!(
+        mismatches > 0,
+        "Kingdom/legacy_portal_map must not satisfy hopf_hurwitz_v1"
+    );
 }

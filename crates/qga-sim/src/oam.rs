@@ -8,8 +8,12 @@
 use crate::Particle;
 use glam::Vec3;
 use qga_math::{
-    holonomy_b, kappa_star, sample_fiber_family, Fiber, DEFAULT_KAPPA, E_INV2, GOLDEN_ANGLE_RAD,
-    GOLDEN_ANGLE_RAD_F, KAPPA_DOC, KAPPA_SIM, LAMBDA_T_CRIT, PHI, Q, R_RESIDUAL,
+    sample_fiber_family, Fiber, E_INV2, GOLDEN_ANGLE_RAD, GOLDEN_ANGLE_RAD_F, HopfConvention, PHI,
+    Q, R_RESIDUAL,
+};
+
+use crate::{
+    holonomy_b, kappa_star, DEFAULT_KAPPA, KAPPA_DOC, KAPPA_SIM, LAMBDA_T_CRIT,
 };
 use rayon::prelude::*;
 
@@ -57,6 +61,8 @@ pub struct OamConfig {
     pub pump_secs: f32,
     pub relax_secs: f32,
     pub hold_secs: f32,
+    /// Required. Scene policy default is Classical; lab is the Kingdom pin.
+    pub convention: HopfConvention,
 }
 
 impl Default for OamConfig {
@@ -83,6 +89,7 @@ impl Default for OamConfig {
             pump_secs: 10.0,
             relax_secs: 10.0,
             hold_secs: 3.0,
+            convention: HopfConvention::Classical,
         }
     }
 }
@@ -489,7 +496,7 @@ impl OamDemo {
             cfg.n_fiber_pts as usize,
             (0.18, 1.28),
             6.2,
-            qga_math::HopfConvention::Kingdom,
+            cfg.convention,
         );
         // Shift the Hopf family down so it reads as the torus carpet in Fig. 1.
         for f in fibers.iter_mut() {
@@ -1015,7 +1022,7 @@ fn torus_floor(grid: i32, spacing: f32, radius: f32, y: f32, n_pts: usize) -> Ve
 
 pub fn analog_legend() -> String {
     format!(
-        "arXiv:2607.16520  R={:.4}  e⁻²={:.4}  φ={:.5}  κ_doc={}  κ⋆={:.4}  λt={}",
+        "arXiv:2607.16520  analog (Model)  R={:.4}  e⁻²={:.4}  φ={:.5}  κ_doc={}  κ⋆={:.4}  λt={} (Model)",
         R_RESIDUAL,
         E_INV2,
         PHI,

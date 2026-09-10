@@ -5,6 +5,12 @@ use qga_math::{hopf_coordinates, stereographic, GOLDEN_ANGLE_RAD_F};
 use rayon::prelude::*;
 
 /// 32-byte particle. Layout must stay in lockstep with `qga-gpu` `GpuParticle`.
+///
+/// `pad` is overloaded (do not grow a fourth force into it):
+/// - `(0, 1]` — display hue for the particle shader
+/// - `>= 9.5` — species id as `SPECIES_PAD_BASE + k` (k in 0..6); shader
+///   annulus trigger is `pad >= 9.5`. Cleaning this wants a record-layout
+///   talk with `qga_gpu`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Particle {
@@ -13,6 +19,8 @@ pub struct Particle {
     pub vel: Vec3,
     pub pad: f32,
 }
+
+const _: () = assert!(std::mem::size_of::<Particle>() == 32);
 
 impl Particle {
     pub fn new(pos: Vec3, vel: Vec3, mass: f32) -> Self {
@@ -275,10 +283,83 @@ pub fn spawn_species_disk(
     particles
 }
 
+/// N-body workgroup size. Software fact; matches `nbody.wgsl`.
+pub const NBODY_WORKGROUP: u32 = 256;
+
 /// Round particle counts to a multiple of the n-body workgroup size.
 pub fn quantize_nbody(n: u32) -> u32 {
-    let wg = 256u32;
-    n.max(wg).div_ceil(wg) * wg
+    n.max(NBODY_WORKGROUP).div_ceil(NBODY_WORKGROUP) * NBODY_WORKGROUP
+}
+
+/// Auto-substep so √κ Δt ≪ 2 and the heaviest Plummer pair is not ballistic.
+/// Software-fact host check, not a paper. Caps at 64.
+pub fn nbody_substeps(dt: f32, kappa: f32, g: f32, softening: f32, m_heavy: f32) -> u32 {
+    let spring = kappa.max(0.0).sqrt() * dt;
+    let spring_n = if spring < 0.25 {
+        1
+    } else {
+        (spring / 0.25).ceil() as u32
+    };
+    let eps = softening.max(1e-6);
+    let pair_omega = (g.max(0.0) * m_heavy.max(0.0) / (eps * eps * eps)).sqrt();
+    let pair = pair_omega * dt;
+    let pair_n = if pair < 0.25 {
+        1
+    } else {
+        (pair / 0.25).ceil() as u32
+    };
+    spring_n.max(pair_n).clamp(1, 64)
+}
+
+/// Cheap cosmos diagnostic: kinetic + midplane spring + star–disk PE + L_z.
+/// Not all-pairs energy (that is O(n²)). Software fact, not a flywheel theorem.
+#[derive(Clone, Copy, Debug)]
+pub struct CosmosDiag {
+    pub kinetic: f32,
+    pub spring: f32,
+    pub star: f32,
+    pub lz: f32,
+    pub n: u32,
+}
+
+impl CosmosDiag {
+    pub fn bound(&self) -> f32 {
+        self.kinetic + self.spring + self.star
+    }
+}
+
+pub fn cosmos_diag(particles: &[Particle], g: f32, kappa: f32) -> CosmosDiag {
+    if particles.is_empty() {
+        return CosmosDiag {
+            kinetic: 0.0,
+            spring: 0.0,
+            star: 0.0,
+            lz: 0.0,
+            n: 0,
+        };
+    }
+    let star_m = particles[0].mass;
+    let mut kinetic = 0.0f32;
+    let mut spring = 0.0f32;
+    let mut star = 0.0f32;
+    let mut lz = 0.0f32;
+    for (i, p) in particles.iter().enumerate() {
+        let v2 = p.vel.dot(p.vel);
+        kinetic += 0.5 * p.mass * v2;
+        spring += 0.5 * kappa * p.mass * p.pos.z * p.pos.z;
+        lz += p.mass * (p.pos.x * p.vel.y - p.pos.y * p.vel.x);
+        if i > 0 {
+            let r = p.pos.length().max(1e-6);
+            star += -g * star_m * p.mass / r;
+        }
+    }
+    CosmosDiag {
+        kinetic,
+        spring,
+        star,
+        lz,
+        n: particles.len() as u32,
+    }
 }
 
 #[cfg(test)]
@@ -303,6 +384,30 @@ mod tests {
         assert_eq!(quantize_nbody(1), 256);
         assert_eq!(quantize_nbody(256), 256);
         assert_eq!(quantize_nbody(257), 512);
+    }
+
+    #[test]
+    fn particle_record_is_32_bytes() {
+        assert_eq!(std::mem::size_of::<Particle>(), 32);
+    }
+
+    #[test]
+    fn substeps_grow_with_stiff_spring() {
+        assert_eq!(nbody_substeps(0.001, 0.52, 0.42, 0.12, 9.0), 1);
+        assert!(nbody_substeps(0.5, 16.0, 0.42, 0.12, 9.0) > 1);
+        assert!(nbody_substeps(0.007, 0.52, 0.42, 0.12, 9.0) >= 1);
+    }
+
+    #[test]
+    fn diag_two_body_has_angular_momentum() {
+        let p = [
+            Particle::new(Vec3::ZERO, Vec3::ZERO, 10.0),
+            Particle::new(Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), 1.0),
+        ];
+        let d = cosmos_diag(&p, 1.0, 0.0);
+        assert!((d.lz - 1.0).abs() < 1e-5);
+        assert!(d.kinetic > 0.0);
+        assert!(d.star < 0.0);
     }
 
     #[test]

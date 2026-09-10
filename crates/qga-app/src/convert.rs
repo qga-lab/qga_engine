@@ -1,4 +1,11 @@
 //! CPU records → qga-gpu upload types. Geometry meaning stays in qga-math / qga-sim.
+//!
+//! `GpuParticle.pad` / `Particle.pad` is overloaded. Do not grow a fourth
+//! force term into the same field; that wants a record-layout talk with
+//! `qga_gpu` (32-byte contract, pinned at b9c9994):
+//! - `(0, 1]` — particle-shader hue (four bins)
+//! - `>= 9.5` — species id `10+k` and the WGSL annulus trigger
+//! Palette remap (`display_particle`) only rewrites hue for `pad >= 9.5`.
 
 use glam::Vec3;
 use qga_gpu::{FaceVert, GpuFiber, GpuHub, GpuParticle};

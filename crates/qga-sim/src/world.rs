@@ -2,8 +2,8 @@
 
 use glam::{Vec2, Vec3};
 use qga_math::{
-    color_from_eta, hurwitz_units, magic_island_score, sample_fiber_family, shasta_height,
-    stereographic, Fiber, Functional, HopfConvention, Q, SHASTA_XZ,
+    candidate_adjacency, color_from_eta, hurwitz_units, magic_island_score, sample_fiber_family,
+    shasta_height, stereographic, Fiber, Functional, HopfConvention, Q, SHASTA_XZ,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -74,6 +74,10 @@ pub struct TreeSpec {
 pub struct RealmWorld {
     pub sanctuaries: Vec<Sanctuary>,
     pub fibers: Vec<Fiber>,
+    /// Along-fibre edges of the 24 units (OP1 *model* split). Ley ribbons.
+    pub ley_ribbons: Vec<Fiber>,
+    /// Inter-fibre edges of the same 24. Roads / ridges. Not a theorem.
+    pub road_segments: Vec<[Vec3; 2]>,
     pub heightmap: Heightmap,
     pub islands: Vec<Island>,
     pub trees: Vec<TreeSpec>,
@@ -193,6 +197,8 @@ pub fn generate_realm(cfg: RealmConfig) -> RealmWorld {
     );
     let trees = plant_sequoias(&heightmap);
 
+    let (ley_ribbons, road_segments) = adjacency_graph(&sanctuaries, &heightmap);
+
     // Islands: high-score bumps around projected Hurwitz points that sit inland.
     let mut islands = Vec::new();
     for s in &sanctuaries {
@@ -220,10 +226,51 @@ pub fn generate_realm(cfg: RealmConfig) -> RealmWorld {
     RealmWorld {
         sanctuaries,
         fibers,
+        ley_ribbons,
+        road_segments,
         heightmap,
         islands,
         trees,
         peak,
+    }
+}
+
+/// Sanctuary graph from `candidate_adjacency` on the 24 units.
+/// Along-fibre → ley ribbons; inter-fibre → roads. Model, not OP1-closed.
+fn adjacency_graph(sanctuaries: &[Sanctuary], map: &Heightmap) -> (Vec<Fiber>, Vec<[Vec3; 2]>) {
+    let pts: Vec<Q> = sanctuaries.iter().map(|s| s.q).collect();
+    // Model thresholds: 4 phase bins so Δξ₂=π/2 on the 24 still counts as along-fibre.
+    let (along, inter) = candidate_adjacency(&pts, 1.05, 4, 0.20, 0.20);
+    let lifted = |s: &Sanctuary| {
+        Vec3::new(s.pos.x, map.sample(s.pos.x, s.pos.z) + 0.35, s.pos.z)
+    };
+    let mut ley = Vec::with_capacity(along.len());
+    for (i, j) in along {
+        let a = lifted(&sanctuaries[i]);
+        let b = lifted(&sanctuaries[j]);
+        ley.push(ribbon_between(a, b, sanctuaries[i].color, 10));
+    }
+    let mut roads = Vec::with_capacity(inter.len());
+    for (i, j) in inter {
+        roads.push([lifted(&sanctuaries[i]), lifted(&sanctuaries[j])]);
+    }
+    (ley, roads)
+}
+
+fn ribbon_between(a: Vec3, b: Vec3, color: Vec3, n: usize) -> Fiber {
+    let n = n.max(2);
+    let mut points = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = i as f32 / (n - 1) as f32;
+        points.push(a.lerp(b, t));
+    }
+    Fiber {
+        eta: 0.4,
+        xi1: 0.0,
+        points,
+        s3: vec![Q::IDENTITY; n],
+        base: color,
+        color,
     }
 }
 
@@ -297,6 +344,19 @@ mod tests {
         assert_eq!(w.heightmap.heights.len(), 32 * 32);
         assert!(w.sanctuaries.iter().any(|s| s.name == "Crownhold"));
         assert!(w.peak.y > 1.0);
+        assert!(!w.ley_ribbons.is_empty() || !w.road_segments.is_empty());
+    }
+
+    #[test]
+    fn hurwitz_adjacency_splits_along_and_inter() {
+        let w = generate_realm(RealmConfig {
+            n_fibers: 8,
+            n_points: 16,
+            terrain: 16,
+            ..RealmConfig::default()
+        });
+        assert!(!w.ley_ribbons.is_empty(), "along-fibre ley from the 24");
+        assert!(!w.road_segments.is_empty(), "inter-fibre roads from the 24");
     }
 }
 

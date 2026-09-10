@@ -1,21 +1,25 @@
 use crate::camera_rig;
 use crate::convert;
+use crate::fibers_json::load_export_fiber_curves;
 use crate::hud::{
-    build_cosmos_hud, build_oam_hud, build_reveal_hud, palette_for_preset, preset_hit, view_hit,
-    PRESET_IDS, VIEW_IDS,
+    build_cosmos_hud, build_lab_hud, build_oam_hud, build_realm_hud, build_reveal_hud,
+    fibre_clock_line, palette_for_preset, preset_hit, view_hit, PRESET_IDS, VIEW_IDS,
 };
-use crate::nbody_gpu::{NbodyGpu, SimParams};
+use crate::nbody_gpu::{Integrator, NbodyGpu, SimParams};
 use crate::record::{self, VideoRecorder, RECORD_FPS};
-use crate::scene::{HardwareProfile, SceneKind};
+use crate::scene::{
+    convention_label, scene_convention, HardwareProfile, PlanetMarker, SceneKind,
+};
 use anyhow::{Context, Result};
 use glam::Vec3;
 use qga_gpu::{
     Camera, CameraMode, GpuContext, GpuOrbInstance, LineStyle, Renderer, VisualState,
 };
-use qga_math::{sample_fiber_family, HopfConvention};
+use qga_math::{sample_fiber_family, Fiber, HopfConvention};
 use qga_sim::{
-    analog_legend, generate_realm, quantize_nbody, ring_radius, spawn_nebula, spawn_species_disk,
-    NebulaConfig, OamConfig, OamDemo, RealmConfig, RevealPanel, RevealQuad, SPECIES_PAD_BASE,
+    analog_legend, detect_clumps, generate_realm, left_rotor, quantize_nbody, restamp_family,
+    right_rotor, ring_radius, spawn_nebula, spawn_species_disk, NebulaConfig, OamConfig, OamDemo,
+    RealmConfig, RevealPanel, RevealQuad, NBODY_WORKGROUP, SPECIES_PAD_BASE,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -41,14 +45,28 @@ pub struct Launch {
     pub host: Option<String>,
     pub dump_species: Option<PathBuf>,
     pub palette: u32,
+    pub profile: HardwareProfile,
+    pub convention: Option<HopfConvention>,
+    pub integrator: Integrator,
+    pub diag: bool,
+    pub fibers_json: Option<PathBuf>,
+    pub dump_png: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+struct GaugeOverlay {
+    fibers: Vec<Fiber>,
+    scale: f32,
+    radius: f32,
 }
 
 pub fn run_headless(launch: Launch) -> Result<()> {
-    log::info!("QGA Engine headless — {}", HardwareProfile::THIS_BOX.name);
-    let gpu = GpuContext::init_headless()?;
+    log::info!("QGA Engine headless — {}", launch.profile.name);
+    let mut gpu = GpuContext::init_headless()?;
     log::info!("{}", gpu.report());
     let mut renderer = Renderer::new(&gpu)?;
     let mut nbody = None;
+    let mut overlay = None;
     let mut oam = if launch.scene == SceneKind::Oam {
         Some(make_oam_demo(&launch))
     } else {
@@ -68,6 +86,7 @@ pub fn run_headless(launch: Launch) -> Result<()> {
         oam.as_mut(),
         launch.palette,
         false,
+        &mut overlay,
     )?;
     if let Some(demo) = reveal.as_mut() {
         demo.step(0.0);
@@ -78,12 +97,13 @@ pub fn run_headless(launch: Launch) -> Result<()> {
     for i in 0..n {
         if launch.scene == SceneKind::Cosmos {
             if let Some(nb) = nbody.as_mut() {
-                nb.step(&gpu, 1);
+                let sub = nb.substeps();
+                nb.step(&gpu, sub);
             }
         }
         if let Some(demo) = oam.as_mut() {
             demo.step(1.0 / 60.0);
-            sync_oam(&gpu, &mut renderer, demo)?;
+            sync_oam(&gpu, &mut renderer, demo, &launch)?;
         }
         if let Some(demo) = reveal.as_mut() {
             demo.step(1.0 / 60.0);
@@ -98,6 +118,34 @@ pub fn run_headless(launch: Launch) -> Result<()> {
         log::info!("{}", demo.title_suffix());
     }
     let n_part = nbody.as_ref().map(|nb| nb.len()).unwrap_or_else(|| renderer.particle_count());
+    let quantized = nbody
+        .as_ref()
+        .map(|nb| nb.len() % NBODY_WORKGROUP == 0)
+        .unwrap_or(true);
+    let stepped = launch.scene != SceneKind::Cosmos || nbody.is_some();
+    let conv = scene_convention(launch.scene, launch.convention);
+    let integ = nbody
+        .as_ref()
+        .map(|nb| nb.integrator().name())
+        .unwrap_or(launch.integrator.name());
+    let wg = nbody
+        .as_ref()
+        .map(|_| NbodyGpu::workgroup())
+        .unwrap_or(NBODY_WORKGROUP);
+    // Engine facts only. UploadStats belongs to qga_gpu.
+    println!(
+        "engine-proof scene={} frames={} record_bytes={} workgroup={} nbody={} quantized={} stepped={} profile={} convention={} integrator={}",
+        launch.scene.name(),
+        n,
+        std::mem::size_of::<qga_gpu::GpuParticle>(),
+        wg,
+        n_part,
+        if quantized { "yes" } else { "no" },
+        if stepped { "yes" } else { "no" },
+        launch.profile.id.name(),
+        convention_label(conv),
+        integ,
+    );
     log::info!(
         "headless ok: {} frames in {:.3}s | fibers={} particles={}",
         n,
@@ -105,11 +153,55 @@ pub fn run_headless(launch: Launch) -> Result<()> {
         renderer.fiber_count(),
         n_part
     );
+    if launch.diag {
+        if let Some(nb) = nbody.as_mut() {
+            let p = nb.params();
+            let d = nb.diag(&gpu)?;
+            println!(
+                "cosmos-diag K={:.4} Ustar={:.4} Uspring={:.4} bound={:.4} |Lz|={:.4} n={} dt={} kappa={}  (not all-pairs)",
+                d.kinetic,
+                d.star,
+                d.spring,
+                d.bound(),
+                d.lz.abs(),
+                d.n,
+                p.dt,
+                p.kappa
+            );
+        } else {
+            anyhow::bail!("--diag energy readback requires --scene cosmos");
+        }
+    }
     if let Some(path) = launch.dump_species.as_ref() {
         let Some(nb) = nbody.as_mut() else {
             anyhow::bail!("--dump-species requires --scene cosmos");
         };
         dump_species_snapshot(&gpu, nb, &launch, path)?;
+    }
+    if let Some(path) = launch.dump_png.as_ref() {
+        if let Some(ov) = overlay.as_ref() {
+            let stamped = restamp_family(
+                &ov.fibers,
+                left_rotor(n as f32 / 60.0),
+                right_rotor(n as f32 / 60.0),
+                ov.scale,
+            );
+            renderer.write_live_fibers(&gpu, &convert::gpu_fibers(&stamped), ov.radius)?;
+        }
+        let mut cam = Camera::orbit(Vec3::ZERO, 8.5);
+        apply_camera_for_scene(&mut cam, launch.scene);
+        let vis = VisualState {
+            glow: launch.profile.glow,
+            ..VisualState::default()
+        };
+        let grabbed = renderer.render(&mut gpu, &cam, &vis, n as f32 / 60.0, true)?;
+        match grabbed {
+            Some(frame) => {
+                record::save_png_to(path, frame.width, frame.height, &frame.bgra)?;
+                println!("dump-png {}", path.display());
+            }
+            None => anyhow::bail!("--dump-png: renderer returned no frame (offscreen grab failed)"),
+        }
     }
     Ok(())
 }
@@ -119,6 +211,7 @@ pub fn run_windowed(launch: Launch) -> Result<()> {
     event_loop.set_control_flow(ControlFlow::Poll);
     let scene = launch.scene;
     let palette = launch.palette;
+    let profile = launch.profile;
     let preset_ix = PRESET_IDS
         .iter()
         .position(|&id| palette_for_preset(id) == Some(palette))
@@ -129,7 +222,10 @@ pub fn run_windowed(launch: Launch) -> Result<()> {
         gpu: None,
         renderer: None,
         camera: Camera::orbit(Vec3::ZERO, 8.5),
-        vis: VisualState::default(),
+        vis: VisualState {
+            glow: profile.glow,
+            ..VisualState::default()
+        },
         palette,
         grid: false,
         tour: false,
@@ -143,7 +239,7 @@ pub fn run_windowed(launch: Launch) -> Result<()> {
         time: 0.0,
         frames: 0,
         title_acc: 0.0,
-        profile: HardwareProfile::THIS_BOX,
+        profile,
         recorder: None,
         want_shot: false,
         last_rec: Instant::now(),
@@ -155,6 +251,11 @@ pub fn run_windowed(launch: Launch) -> Result<()> {
         view_ix: 0,
         tabs_hidden: false,
         cursor: [0.0, 0.0],
+        ley_n: 0,
+        road_n: 0,
+        overlay: None,
+        clumps: Vec::new(),
+        last_clump_t: -1.0,
     };
     event_loop.run_app(&mut app)?;
     Ok(())
@@ -202,6 +303,11 @@ struct EngineApp {
     view_ix: usize,
     tabs_hidden: bool,
     cursor: [f32; 2],
+    ley_n: usize,
+    road_n: usize,
+    overlay: Option<GaugeOverlay>,
+    clumps: Vec<PlanetMarker>,
+    last_clump_t: f32,
 }
 
 impl EngineApp {
@@ -225,7 +331,7 @@ impl EngineApp {
         if self.scene == SceneKind::Reveal {
             self.reveal = Some(RevealQuad::new());
         }
-        load_scene(
+        let (ley, roads) = load_scene(
             &gpu,
             &mut renderer,
             &mut self.nbody,
@@ -234,7 +340,10 @@ impl EngineApp {
             self.oam.as_mut(),
             self.palette,
             self.grid,
+            &mut self.overlay,
         )?;
+        self.ley_n = ley;
+        self.road_n = roads;
         if let Some(demo) = self.reveal.as_mut() {
             demo.step(0.0);
             sync_reveal(&gpu, &mut renderer, demo)?;
@@ -273,7 +382,7 @@ impl EngineApp {
         if !self.vis.paused {
             match self.scene {
                 SceneKind::Cosmos if self.tour => {
-                    camera_rig::tick_tour(&mut self.camera, dt, &mut self.tour_t, &[]);
+                    camera_rig::tick_tour(&mut self.camera, dt, &mut self.tour_t, &self.clumps);
                 }
                 SceneKind::Cosmos => {
                     camera_rig::tick_cinematic_cosmos(&mut self.camera, dt, self.time)
@@ -326,16 +435,53 @@ impl EngineApp {
             };
             if self.scene == SceneKind::Cosmos && !self.vis.paused {
                 if let Some(nb) = self.nbody.as_mut() {
-                    nb.step(gpu, 1);
+                    let sub = nb.substeps();
+                    nb.step(gpu, sub);
                     let parts = nb.download(gpu)?;
+                    if self.time - self.last_clump_t > 0.45 {
+                        let cpu: Vec<qga_sim::Particle> = parts
+                            .iter()
+                            .map(|p| qga_sim::Particle {
+                                pos: p.pos.into(),
+                                mass: p.mass,
+                                vel: p.vel.into(),
+                                pad: p.pad,
+                            })
+                            .collect();
+                        self.clumps = detect_clumps(&cpu, 8)
+                            .into_iter()
+                            .map(|c| PlanetMarker {
+                                pos: c.pos,
+                                count: c.count,
+                                radius: c.radius,
+                                color: Vec3::new(1.0, 0.72, 0.28),
+                            })
+                            .collect();
+                        self.last_clump_t = self.time;
+                    }
                     let display = convert::display_particles(parts, self.palette);
                     renderer.write_particles(gpu, &display)?;
+                }
+            }
+            if let Some(ov) = self.overlay.as_ref() {
+                if matches!(
+                    self.scene,
+                    SceneKind::Lab | SceneKind::Realm | SceneKind::Cosmos
+                ) && !self.vis.paused
+                {
+                    let stamped = restamp_family(
+                        &ov.fibers,
+                        left_rotor(self.time),
+                        right_rotor(self.time),
+                        ov.scale,
+                    );
+                    renderer.write_live_fibers(gpu, &convert::gpu_fibers(&stamped), ov.radius)?;
                 }
             }
             if self.scene == SceneKind::Oam && !self.vis.paused {
                 if let Some(demo) = self.oam.as_mut() {
                     demo.step(dt);
-                    sync_oam(gpu, renderer, demo)?;
+                    sync_oam(gpu, renderer, demo, &self.launch)?;
                 }
             }
             if self.scene == SceneKind::Reveal && !self.vis.paused {
@@ -344,18 +490,56 @@ impl EngineApp {
                     sync_reveal(gpu, renderer, demo)?;
                 }
             }
-            if self.scene == SceneKind::Cosmos {
-                renderer.write_hud(
-                    gpu,
-                    &build_cosmos_hud(
-                        self.preset_open,
-                        self.preset_ix,
-                        self.view_open,
-                        self.view_ix,
-                        self.grid,
-                        self.tabs_hidden,
-                    ),
-                )?;
+            let conv = scene_convention(self.scene, self.launch.convention);
+            let conv_line = format!(
+                "Hopf {}  clumps {}",
+                convention_label(conv),
+                self.clumps.len()
+            );
+            let clock = fibre_clock_line(self.time);
+            match self.scene {
+                SceneKind::Cosmos => {
+                    let diag_line = if self.launch.diag {
+                        self.nbody.as_mut().and_then(|nb| {
+                            nb.diag(gpu).ok().map(|d| {
+                                format!(
+                                    "K={:.3} U*={:.3} Us={:.3} |Lz|={:.3} {} (not all-pairs)",
+                                    d.kinetic,
+                                    d.star,
+                                    d.spring,
+                                    d.lz.abs(),
+                                    self.launch.integrator.name()
+                                )
+                            })
+                        })
+                    } else {
+                        None
+                    };
+                    renderer.write_hud(
+                        gpu,
+                        &build_cosmos_hud(
+                            self.preset_open,
+                            self.preset_ix,
+                            self.view_open,
+                            self.view_ix,
+                            self.grid,
+                            self.tabs_hidden,
+                            &conv_line,
+                            diag_line.as_deref(),
+                            &clock,
+                        ),
+                    )?;
+                }
+                SceneKind::Lab => {
+                    renderer.write_hud(gpu, &build_lab_hud(&conv_line, &clock))?;
+                }
+                SceneKind::Realm => {
+                    renderer.write_hud(
+                        gpu,
+                        &build_realm_hud(&conv_line, self.ley_n, self.road_n, &clock),
+                    )?;
+                }
+                SceneKind::Oam | SceneKind::Reveal => {}
             }
             let captured = renderer.render(gpu, &self.camera, &self.vis, self.time, grab)?;
             let n_bodies = self
@@ -619,7 +803,7 @@ impl EngineApp {
         self.tour = false;
         self.tour_t = 0.0;
         if let (Some(gpu), Some(renderer)) = (self.gpu.as_mut(), self.renderer.as_mut()) {
-            if let Err(e) = load_scene(
+            match load_scene(
                 gpu,
                 renderer,
                 &mut self.nbody,
@@ -628,8 +812,13 @@ impl EngineApp {
                 self.oam.as_mut(),
                 self.palette,
                 self.grid,
+                &mut self.overlay,
             ) {
-                log::error!("reload scene: {e:#}");
+                Ok((ley, roads)) => {
+                    self.ley_n = ley;
+                    self.road_n = roads;
+                }
+                Err(e) => log::error!("reload scene: {e:#}"),
             }
             if let Some(demo) = self.reveal.as_mut() {
                 demo.step(0.0);
@@ -745,7 +934,7 @@ impl EngineApp {
         if let (Some(gpu), Some(renderer), Some(demo)) =
             (self.gpu.as_mut(), self.renderer.as_mut(), self.oam.as_mut())
         {
-            if let Err(e) = sync_oam(gpu, renderer, demo) {
+            if let Err(e) = sync_oam(gpu, renderer, demo, &self.launch) {
                 log::error!("oam sync: {e:#}");
             }
         }
@@ -774,7 +963,7 @@ impl EngineApp {
                 let next = if dir > 0 {
                     (cur * 2).min(self.profile.cosmos_particles_max)
                 } else {
-                    (cur / 2).max(1024)
+                    (cur / 2).max(NBODY_WORKGROUP)
                 };
                 self.launch.particles = Some(next);
                 self.switch(self.scene);
@@ -921,7 +1110,13 @@ fn apply_camera_for_scene(cam: &mut Camera, scene: SceneKind) {
 }
 
 fn make_oam_demo(launch: &Launch) -> OamDemo {
+    let hw = launch.profile;
     let mut cfg = OamConfig::default();
+    cfg.n_fibers = hw.oam_fibers;
+    cfg.n_fiber_pts = hw.oam_points;
+    cfg.n_motes = hw.oam_motes;
+    cfg.nx = hw.oam_nx as usize;
+    cfg.convention = scene_convention(SceneKind::Oam, launch.convention);
     if let Some(ell) = launch.ell {
         cfg.ell = ell;
     }
@@ -932,16 +1127,25 @@ fn make_oam_demo(launch: &Launch) -> OamDemo {
         cfg.n_fibers = n.clamp(16, 512);
     }
     if let Some(n) = launch.particles {
-        cfg.n_motes = n.clamp(4096, 262_144);
+        cfg.n_motes = n.clamp(256, 262_144);
     }
     OamDemo::new(cfg)
 }
 
-fn sync_oam(gpu: &GpuContext, renderer: &mut Renderer, demo: &mut OamDemo) -> Result<()> {
+fn sync_oam(
+    gpu: &GpuContext,
+    renderer: &mut Renderer,
+    demo: &mut OamDemo,
+    launch: &Launch,
+) -> Result<()> {
     renderer.write_live_fibers(gpu, &convert::gpu_fibers(demo.fibers()), 0.036)?;
     renderer.upload_hubs(gpu, &[])?;
     renderer.write_particles(gpu, &convert::gpu_particles(&demo.particles()))?;
-    renderer.write_hud(gpu, &build_oam_hud(&demo.hud()))?;
+    let conv = scene_convention(SceneKind::Oam, launch.convention);
+    renderer.write_hud(
+        gpu,
+        &build_oam_hud(&demo.hud(), convention_label(conv)),
+    )?;
     Ok(())
 }
 
@@ -974,24 +1178,44 @@ fn load_scene(
     oam: Option<&mut OamDemo>,
     palette: u32,
     _grid: bool,
-) -> Result<()> {
-    let hw = HardwareProfile::THIS_BOX;
+    overlay: &mut Option<GaugeOverlay>,
+) -> Result<(usize, usize)> {
+    let hw = launch.profile;
+    let conv = scene_convention(scene, launch.convention);
     *nbody = None;
+    *overlay = None;
     clear_uploads(gpu, renderer)?;
+    let mut ley_n = 0usize;
+    let mut road_n = 0usize;
+    let mut imported = if let Some(path) = launch.fibers_json.as_ref() {
+        let f = load_export_fiber_curves(path, conv)?;
+        log::info!("fibers-json {} ({} fibers)", path.display(), f.len());
+        Some(f)
+    } else {
+        None
+    };
     match scene {
         SceneKind::Lab => {
             let n_fibers = launch.fibers.unwrap_or(hw.lab_fibers);
-            let fibers = sample_fiber_family(
-                n_fibers as usize,
-                hw.lab_points as usize,
-                (0.15, 1.35),
-                2.0,
-                HopfConvention::Kingdom,
-            );
+            let fibers = imported.take().unwrap_or_else(|| {
+                sample_fiber_family(
+                    n_fibers as usize,
+                    hw.lab_points as usize,
+                    (0.15, 1.35),
+                    2.0,
+                    conv,
+                )
+            });
             renderer.write_live_fibers(gpu, &convert::gpu_fibers(&fibers), hw.tube_radius_lab)?;
+            *overlay = Some(GaugeOverlay {
+                fibers,
+                scale: 2.0,
+                radius: hw.tube_radius_lab,
+            });
             log::info!(
-                "lab: {n_fibers} fibers × {} pts (Kingdom Hopf)",
-                hw.lab_points
+                "lab: overlay fibers × {} pts ({})",
+                hw.lab_points,
+                convention_label(conv)
             );
         }
         SceneKind::Realm => {
@@ -1003,22 +1227,49 @@ fn load_scene(
             };
             let world = generate_realm(cfg);
             renderer.update_faces(gpu, &convert::terrain_faces(&world.heightmap));
+            let hopf = imported.take().unwrap_or(world.fibers);
+            let n_hopf_fibers = hopf.len();
+            renderer.retain_static_fibers(
+                gpu,
+                &convert::gpu_fibers(&world.ley_ribbons),
+                hw.tube_radius_realm * 0.85,
+            )?;
             renderer.write_live_fibers(
                 gpu,
-                &convert::gpu_fibers(&world.fibers),
+                &convert::gpu_fibers(&hopf),
                 hw.tube_radius_realm,
             )?;
+            *overlay = Some(GaugeOverlay {
+                fibers: hopf,
+                scale: cfg.scale,
+                radius: hw.tube_radius_realm,
+            });
             let hm = &world.heightmap;
             let mut hubs = convert::sanctuary_hubs(&world.sanctuaries, |x, z| hm.sample(x, z));
             hubs.extend(convert::tree_hubs(&world.trees));
             renderer.upload_hubs(gpu, &hubs)?;
+            renderer.update_line_segments(
+                gpu,
+                &world.road_segments,
+                LineStyle {
+                    color: Vec3::new(0.42, 0.34, 0.28),
+                    width: 0.0045,
+                    depth_bias: 0.0006,
+                    opacity: 0.88,
+                },
+            );
+            ley_n = world.ley_ribbons.len();
+            road_n = world.road_segments.len();
             log::info!(
-                "realm: Shasta peak {:.1}, {} sequoias, {} sanctuaries, {} fibers, {}² terrain",
+                "realm: Shasta peak {:.1}, {} sequoias, {} sanctuaries, {} fibers, ley {} roads {} (Model), {}² terrain, {}",
                 world.peak.y,
                 world.trees.len(),
                 world.sanctuaries.len(),
-                world.fibers.len(),
-                world.heightmap.n
+                n_hopf_fibers,
+                ley_n,
+                road_n,
+                world.heightmap.n,
+                convention_label(conv)
             );
         }
         SceneKind::Cosmos => {
@@ -1048,10 +1299,14 @@ fn load_scene(
                     g: neb.g,
                     eps2: neb.softening * neb.softening,
                     kappa: neb.kappa,
-                    pad: [world_r0, 0.10, 1.0],
+                    integrator: launch.integrator as u32,
+                    world_r0,
+                    annulus_k: 0.10,
+                    annulus_on: 1.0,
+                    pad: [0.0; 3],
                 };
                 log::info!(
-                    "cosmos species: r0={world_r0:.2} kappa={} w={w:?}",
+                    "cosmos species: r0={world_r0:.2} kappa={} (Model) w={w:?}",
                     neb.kappa
                 );
                 (particles, sim)
@@ -1063,26 +1318,55 @@ fn load_scene(
                     g: neb.g,
                     eps2: neb.softening * neb.softening,
                     kappa: launch.kappa.unwrap_or(neb.kappa),
+                    integrator: launch.integrator as u32,
+                    world_r0: 0.0,
+                    annulus_k: 0.0,
+                    annulus_on: 0.0,
                     pad: [0.0; 3],
                 };
                 (particles, sim)
             };
             let gpu_parts = convert::gpu_particles(&particles);
-            *nbody = Some(NbodyGpu::new(gpu, &gpu_parts, sim)?);
+            *nbody = Some(NbodyGpu::new(
+                gpu,
+                &gpu_parts,
+                sim,
+                launch.integrator,
+            )?);
             renderer.write_particles(gpu, &convert::display_particles(&gpu_parts, palette))?;
-            let sky = sample_fiber_family(48, 96, (0.2, 1.1), 18.0, HopfConvention::Kingdom);
+            let sky = imported.take().unwrap_or_else(|| {
+                sample_fiber_family(
+                    hw.cosmos_sky_fibers as usize,
+                    hw.cosmos_sky_points as usize,
+                    (0.2, 1.1),
+                    18.0,
+                    conv,
+                )
+            });
             renderer.write_live_fibers(gpu, &convert::gpu_fibers(&sky), 0.07)?;
-            log::info!("cosmos: {n} bodies + sky fibers");
+            *overlay = Some(GaugeOverlay {
+                fibers: sky,
+                scale: 18.0,
+                radius: 0.07,
+            });
+            let sub = nbody.as_ref().map(|nb| nb.substeps()).unwrap_or(1);
+            log::info!(
+                "cosmos: {n} bodies + sky fibers  integrator={} substeps={} κ√Δt check host  {}",
+                launch.integrator.name(),
+                sub,
+                convention_label(conv)
+            );
         }
         SceneKind::Oam => {
             if let Some(demo) = oam {
-                sync_oam(gpu, renderer, demo)?;
+                sync_oam(gpu, renderer, demo, launch)?;
                 log::info!("{}", analog_legend());
                 log::info!(
-                    "oam: {} motes={} fibers={}",
+                    "oam: {} motes={} fibers={} {}",
                     demo.title_suffix(),
                     demo.mote_count(),
-                    renderer.fiber_count()
+                    renderer.fiber_count(),
+                    convention_label(conv)
                 );
             }
         }
@@ -1090,7 +1374,7 @@ fn load_scene(
             log::info!("reveal: full-page Lorenz A/B/C/D (keys 7 8 9 D) — visualizer, not a road");
         }
     }
-    Ok(())
+    Ok((ley_n, road_n))
 }
 
 struct SpeciesFile {

@@ -1,9 +1,31 @@
 //! Cosmos N-body compute. Lives in qga-app; qga-gpu only draws the particles.
+//!
+//! Integrators are Software fact: semi-implicit Euler (default) or velocity
+//! Verlet / leapfrog with cached a. Same symplectic family, one force eval
+//! per step. Not a flux-flywheel theorem.
 
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use qga_gpu::{GpuContext, GpuParticle};
+use qga_sim::{cosmos_diag, nbody_substeps, CosmosDiag, Particle, NBODY_WORKGROUP};
 use wgpu::util::DeviceExt;
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Integrator {
+    #[default]
+    Euler = 0,
+    Verlet = 1,
+}
+
+impl Integrator {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Euler => "euler",
+            Self::Verlet => "verlet",
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -13,13 +35,25 @@ pub struct SimParams {
     pub g: f32,
     pub eps2: f32,
     pub kappa: f32,
+    pub integrator: u32,
+    pub world_r0: f32,
+    pub annulus_k: f32,
+    pub annulus_on: f32,
     pub pad: [f32; 3],
 }
 
+const _: () = assert!(std::mem::size_of::<SimParams>() == 48);
+
 pub struct NbodyGpu {
-    pipeline: wgpu::ComputePipeline,
+    integrate: wgpu::ComputePipeline,
+    eval_force: wgpu::ComputePipeline,
+    verlet_drift: wgpu::ComputePipeline,
+    verlet_kick: wgpu::ComputePipeline,
     a: wgpu::Buffer,
     b: wgpu::Buffer,
+    /// Kept alive for the compute bind groups (Verlet cached a).
+    #[allow(dead_code)]
+    acc: wgpu::Buffer,
     /// Kept alive for the compute bind groups.
     #[allow(dead_code)]
     sim_buf: wgpu::Buffer,
@@ -27,6 +61,9 @@ pub struct NbodyGpu {
     bind_ba: wgpu::BindGroup,
     staging: wgpu::Buffer,
     n: u32,
+    sim: SimParams,
+    integrator: Integrator,
+    m_heavy: f32,
     /// true → `a` is the current source.
     ping: bool,
     cpu: Vec<GpuParticle>,
@@ -34,7 +71,12 @@ pub struct NbodyGpu {
 }
 
 impl NbodyGpu {
-    pub fn new(gpu: &GpuContext, particles: &[GpuParticle], sim: SimParams) -> Result<Self> {
+    pub fn new(
+        gpu: &GpuContext,
+        particles: &[GpuParticle],
+        sim: SimParams,
+        integrator: Integrator,
+    ) -> Result<Self> {
         let device = &gpu.device;
         let sm = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("nbody"),
@@ -46,6 +88,7 @@ impl NbodyGpu {
                 storage_entry(0, true),
                 storage_entry(1, false),
                 uniform_entry(2),
+                storage_entry(3, false),
             ],
         });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -53,14 +96,20 @@ impl NbodyGpu {
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("nbody"),
-            layout: Some(&pl),
-            module: &sm,
-            entry_point: Some("integrate"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
+        let pipeline = |entry: &'static str| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(entry),
+                layout: Some(&pl),
+                module: &sm,
+                entry_point: Some(entry),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        };
+        let integrate = pipeline("integrate");
+        let eval_force = pipeline("eval_force");
+        let verlet_drift = pipeline("verlet_drift");
+        let verlet_kick = pipeline("verlet_kick");
 
         let usage = wgpu::BufferUsages::STORAGE
             | wgpu::BufferUsages::COPY_DST
@@ -76,13 +125,21 @@ impl NbodyGpu {
             contents: bytes,
             usage,
         });
+        let acc_bytes = vec![0u8; particles.len() * 16];
+        let acc = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("nbody-acc"),
+            contents: &acc_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+        let mut sim = sim;
+        sim.integrator = integrator as u32;
         let sim_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("nbody-sim"),
             contents: bytemuck::bytes_of(&sim),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let bind_ab = bind_nbody(device, &layout, &a, &b, &sim_buf);
-        let bind_ba = bind_nbody(device, &layout, &b, &a, &sim_buf);
+        let bind_ab = bind_nbody(device, &layout, &a, &b, &sim_buf, &acc);
+        let bind_ba = bind_nbody(device, &layout, &b, &a, &sim_buf, &acc);
         let n = particles.len() as u32;
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("nbody-read"),
@@ -90,55 +147,72 @@ impl NbodyGpu {
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        Ok(Self {
-            pipeline,
+        let mut gpu_nb = Self {
+            integrate,
+            eval_force,
+            verlet_drift,
+            verlet_kick,
             a,
             b,
+            acc,
             sim_buf,
             bind_ab,
             bind_ba,
             staging,
             n,
+            sim,
+            integrator,
+            m_heavy: particles.first().map(|p| p.mass).unwrap_or(9.0),
             ping: true,
             cpu: particles.to_vec(),
             cpu_stale: false,
-        })
+        };
+        if integrator == Integrator::Verlet && n > 0 {
+            gpu_nb.dispatch(gpu, Pass::EvalForce, 1);
+            gpu_nb.cpu_stale = true;
+        }
+        Ok(gpu_nb)
     }
 
     pub fn len(&self) -> u32 {
         self.n
     }
 
+    pub fn integrator(&self) -> Integrator {
+        self.integrator
+    }
+
+    pub fn params(&self) -> SimParams {
+        self.sim
+    }
+
+    pub fn workgroup() -> u32 {
+        NBODY_WORKGROUP
+    }
+
+    pub fn substeps(&self) -> u32 {
+        nbody_substeps(
+            self.sim.dt,
+            self.sim.kappa,
+            self.sim.g,
+            self.sim.eps2.sqrt(),
+            self.m_heavy,
+        )
+    }
+
     pub fn step(&mut self, gpu: &GpuContext, n_substeps: u32) {
         if self.n == 0 {
             return;
         }
-        let mut encoder = gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("nbody"),
-            });
-        for _ in 0..n_substeps.max(1) {
-            {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("nbody-pass"),
-                    timestamp_writes: None,
-                });
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(
-                    0,
-                    if self.ping {
-                        &self.bind_ab
-                    } else {
-                        &self.bind_ba
-                    },
-                    &[],
-                );
-                pass.dispatch_workgroups(self.n.div_ceil(256), 1, 1);
+        match self.integrator {
+            Integrator::Euler => self.dispatch(gpu, Pass::Integrate, n_substeps.max(1)),
+            Integrator::Verlet => {
+                for _ in 0..n_substeps.max(1) {
+                    self.dispatch(gpu, Pass::VerletDrift, 1);
+                    self.dispatch(gpu, Pass::VerletKick, 1);
+                }
             }
-            self.ping = !self.ping;
         }
-        gpu.queue.submit(Some(encoder.finish()));
         self.cpu_stale = true;
     }
 
@@ -173,6 +247,63 @@ impl NbodyGpu {
         self.cpu_stale = false;
         Ok(&self.cpu)
     }
+
+    pub fn diag(&mut self, gpu: &GpuContext) -> Result<CosmosDiag> {
+        let parts = self.download(gpu)?;
+        let cpu: Vec<Particle> = parts
+            .iter()
+            .map(|p| Particle {
+                pos: p.pos.into(),
+                mass: p.mass,
+                vel: p.vel.into(),
+                pad: p.pad,
+            })
+            .collect();
+        Ok(cosmos_diag(&cpu, self.sim.g, self.sim.kappa))
+    }
+
+    fn dispatch(&mut self, gpu: &GpuContext, which: Pass, n_substeps: u32) {
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("nbody"),
+            });
+        for _ in 0..n_substeps.max(1) {
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("nbody-pass"),
+                    timestamp_writes: None,
+                });
+                let pipeline = match which {
+                    Pass::Integrate => &self.integrate,
+                    Pass::EvalForce => &self.eval_force,
+                    Pass::VerletDrift => &self.verlet_drift,
+                    Pass::VerletKick => &self.verlet_kick,
+                };
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(
+                    0,
+                    if self.ping {
+                        &self.bind_ab
+                    } else {
+                        &self.bind_ba
+                    },
+                    &[],
+                );
+                pass.dispatch_workgroups(self.n.div_ceil(NBODY_WORKGROUP), 1, 1);
+            }
+            self.ping = !self.ping;
+        }
+        gpu.queue.submit(Some(encoder.finish()));
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Pass {
+    Integrate,
+    EvalForce,
+    VerletDrift,
+    VerletKick,
 }
 
 fn bind_nbody(
@@ -181,6 +312,7 @@ fn bind_nbody(
     src: &wgpu::Buffer,
     dst: &wgpu::Buffer,
     sim: &wgpu::Buffer,
+    acc: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("nbody-bg"),
@@ -197,6 +329,10 @@ fn bind_nbody(
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: sim.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: acc.as_entire_binding(),
             },
         ],
     })
@@ -227,5 +363,3 @@ fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         count: None,
     }
 }
-
-

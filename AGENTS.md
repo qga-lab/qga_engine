@@ -33,12 +33,16 @@ Binary `qga-engine` (`crates/qga-app`).
 Scenes: lab, realm, cosmos, oam, reveal.
 CLI: `--scene`, `--fibers`, `--particles`, `--ell`, `--kappa`, `--headless`,
 `--frames`, `--width`, `--height`, `--species`, `--avatars`, `--host`,
-`--dump-species`, `--preset`.
+`--dump-species`, `--preset`, `--profile tiny|demo|this_box`, `--convention
+classical|kingdom`, `--integrator euler|verlet`, `--diag`, `--fibers-json`,
+`--dump-png`.
 `$QGA_PLAYGROUND` (default `/home/kinaar/Playground`) for species/avatar JSON.
 
-## Defaults (HardwareProfile::THIS_BOX)
-Lab 256×192 fibers. Realm 128×128 fibers, 256² terrain. Cosmos 262144 bodies
-(cap 524288, quantized to 256). OAM 128×96 fibers, 65536 motes, 16³ PDE.
+## Defaults (HardwareProfile rows)
+`this_box`: Lab 256×192, realm 128×128 / 256² terrain, cosmos 262144 (cap
+524288, quantized to 256), OAM 128×96 / 65536 motes / 16³ PDE.
+`tiny`: CI smoke (cosmos 256, glow 0.55). `demo`: short talk (glow 0.85).
+`--profile` selects the row. `this_box` glow 1.15.
 
 ## Consumers
 inner_cone path-depends on ../qga_engine/crates/qga-math and qga-sim, and on

@@ -1,6 +1,8 @@
 //! Discrete two-gyro gauged Hopf step (CPU), matching `flux_hopf_lib.flux`.
 
-use qga_math::{theta_crit, DEFAULT_GAUGE_STRENGTH, DEFAULT_KAPPA, PI, Q};
+use qga_math::{PI, Q};
+
+use crate::{theta_crit, DEFAULT_GAUGE_STRENGTH, DEFAULT_KAPPA};
 
 #[derive(Clone, Copy, Debug)]
 pub struct FluxLatticeConfig {
