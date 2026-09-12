@@ -1,0 +1,10 @@
+{
+  "rule": "structure_group",
+  "set": "L0",
+  "n_points": 24,
+  "distinct_bases": 6,
+  "along": 24,
+  "inter": 12,
+  "bases_are_octahedron_poles": true,
+  "inter_ds": 1.5707963267948966
+}
