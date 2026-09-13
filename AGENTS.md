@@ -1,7 +1,7 @@
 # qga_engine
 
 Native GPU scenes, QGA math, and simulation. The Vulkan frame lives in
-https://github.com/kinaar8340/qga_gpu. Geometry meaning lives here
+https://github.com/qga-lab/qga_gpu. Geometry meaning lives here
 (`qga-math` / `qga-sim` / `qga-app`).
 
 ## Hard rules

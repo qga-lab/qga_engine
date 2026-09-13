@@ -7,7 +7,7 @@ walk, and a solar nebula that can collapse into a system.
 This is not a Gradio portal and not a Three.js page. Those stay in `kingdom/`
 and `flux_hopf_explorer/`. This repo is the real-time GPU track.
 
-The extracted renderer is [`qga_gpu`](https://github.com/kinaar8340/qga_gpu).
+The extracted renderer is [`qga_gpu`](https://github.com/qga-lab/qga_gpu).
 **This repo owns scenes, math, and simulation.** Renderer claims are
 **Software fact**. QGA maps used as world language are **Model**.
 
@@ -31,7 +31,7 @@ particle / HUD / post shaders live in `qga_gpu`. No runtime Python.
 | Quaternions, classical Hopf, Hurwitz 24 | `flux_hopf_lib` + fixtures `qga-math/tests/fixtures/*_v1.json` + `qga-math` parity tests | `qga-math` (checked Rust port). Pedagogical `qga/lib` is not the runtime SoT. |
 | Gauge L/R, flux topographs, Magic Islands | QGA book labs | `qga-math` |
 | Kingdom `legacy_portal_map`, stereographic pole, κ / θ_crit / W_g / λ_t / 350/π | `flux_hopf_lib` (Model) | **`qga-sim`** owns the Model numbers (`model.rs`). `qga-math` keeps copies only so path-dep consumers still compile. |
-| Tube aesthetic, LOD, flux motes, bloom, void | `flux_hopf_explorer` | [`qga_gpu`](https://github.com/kinaar8340/qga_gpu) WGSL |
+| Tube aesthetic, LOD, flux motes, bloom, void | `flux_hopf_explorer` | [`qga_gpu`](https://github.com/qga-lab/qga_gpu) WGSL |
 | World *meaning* (Z-map, flywheels, class group) | QGA book Ch. 3–8 | realm biomes, ley lines, sanctuaries |
 | Photonic OAM–flux analog (LG packets, λt=2 survival, golden ℓ) | `oam_flux` v0.5-preprint / arXiv:2607.16520 | `--scene oam` |
 | Frame, upload ring, glow, capture | `qga_gpu` | git dep, not in-tree |
@@ -141,7 +141,7 @@ qga-app  (winit Wayland window, clap, input)
     │
     ├── qga-sim   realm worldgen / nebula ICs / CPU flux step / OAM–flux / Lorenz
     │       └── qga-math
-    └── qga-gpu  (https://github.com/kinaar8340/qga_gpu)
+    └── qga-gpu  (https://github.com/qga-lab/qga_gpu)
             ├── Vulkan device (high-performance adapter, native limits)
             ├── raster: fiber ribbons, particles, hubs, faces, HUD
             └── post: HDR threshold + 9-tap glow + tonemap

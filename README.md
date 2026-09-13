@@ -1,8 +1,8 @@
 # QGA Engine
 
-Spine: [`qga`](https://github.com/kinaar8340/qga) — manuscript + pedagogical Python  
-Shared math: [`flux_hopf_lib`](https://github.com/kinaar8340/flux_hopf_lib)  
-Engine: this repo (scenes, Rust math) · [`qga_gpu`](https://github.com/kinaar8340/qga_gpu) (frame)  
+Spine: [`qga`](https://github.com/qga-lab/qga) — manuscript + pedagogical Python  
+Shared math: [`flux_hopf_lib`](https://github.com/qga-lab/flux_hopf_lib)  
+Engine: this repo (scenes, Rust math) · [`qga_gpu`](https://github.com/qga-lab/qga_gpu) (frame)  
 This repo: scenes, Rust math port, sims. Not the swapchain / upload path.
 
 Native GPU graphics engine for **Kingdom Come / QGA** worlds, Hopf/flux
@@ -10,8 +10,8 @@ solar-system simulation, and the photonic OAM–flux analog of
 [arXiv:2607.16520](https://arxiv.org/abs/2607.16520).
 
 **This repo owns geometry meaning and the scenes.** The Vulkan frame lives in
-[`qga_gpu`](https://github.com/kinaar8340/qga_gpu). Math is a Rust port of
-[`qga`](https://github.com/kinaar8340/qga) / [`flux_hopf_lib`](https://github.com/kinaar8340/flux_hopf_lib),
+[`qga_gpu`](https://github.com/qga-lab/qga_gpu). Math is a Rust port of
+[`qga`](https://github.com/qga-lab/qga) / [`flux_hopf_lib`](https://github.com/qga-lab/flux_hopf_lib),
 not a Python call at runtime. The look — bioluminescent fibers, flux motes,
 void backdrop — comes from
 [`flux_hopf_explorer`](https://github.com/kinaar8340/flux_hopf_explorer).
@@ -166,9 +166,9 @@ so playback matches the sim instead of the compositor. `captures/` is gitignored
 
 | Repo | Role |
 |------|------|
-| [`qga_gpu`](https://github.com/kinaar8340/qga_gpu) | wgpu/Vulkan renderer. Owns the frame. Pin `rev = "b9c9994"`, not `main`. No `v0.1.0`. |
-| [`qga`](https://github.com/kinaar8340/qga) | Manuscript + pedagogical Python |
-| [`flux_hopf_lib`](https://github.com/kinaar8340/flux_hopf_lib) | Shared math SoT |
+| [`qga_gpu`](https://github.com/qga-lab/qga_gpu) | wgpu/Vulkan renderer. Owns the frame. Pin `rev = "b9c9994"`, not `main`. No `v0.1.0`. |
+| [`qga`](https://github.com/qga-lab/qga) | Manuscript + pedagogical Python |
+| [`flux_hopf_lib`](https://github.com/qga-lab/flux_hopf_lib) | Shared math SoT |
 | [`flux_hopf_explorer`](https://github.com/kinaar8340/flux_hopf_explorer) | Three.js companion (browser) |
 | [`inner_cone`](https://github.com/kinaar8340/inner_cone) | Sculpture viewer (Model). Git-pins `qga_engine@7e7866b` + `qga_gpu@b9c9994`. |
 | [`shellscan`](https://github.com/kinaar8340/shellscan) | Pixel/scan model. Same two revs as `inner_cone`. |

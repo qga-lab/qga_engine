@@ -11,7 +11,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["kinaar8340"]
-repository = "https://github.com/kinaar8340/qga_engine"
+repository = "https://github.com/qga-lab/qga_engine"
 description = "Native GPU graphics engine for QGA realms, Hopf/flux solar-system simulation, and photonic OAM–flux analog (arXiv:2607.16520)"
 readme = "README.md"
 
@@ -19,7 +19,7 @@ readme = "README.md"
 qga-math = { path = "crates/qga-math" }
 qga-sim = { path = "crates/qga-sim" }
 # Pin a published sha, never main. No v0.1.0 tag until consumers drop sibling paths.
-qga-gpu = { git = "https://github.com/kinaar8340/qga_gpu", rev = "b9c999406e266a585769a4804c6968de0e6d2237", features = ["winit", "headless", "capture", "glow"] }
+qga-gpu = { git = "https://github.com/qga-lab/qga_gpu", rev = "b9c999406e266a585769a4804c6968de0e6d2237", features = ["winit", "headless", "capture", "glow"] }
 
 glam = "0.29"
 bytemuck = { version = "1.22", features = ["derive"] }
