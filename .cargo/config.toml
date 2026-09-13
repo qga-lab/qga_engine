@@ -1,5 +1,7 @@
 # Ryzen 9 3900X (Zen 2) + local LLVM codegen.
 # Thin LTO lives in the workspace [profile.release].
+# GitHub Actions overwrites this file in .github/workflows/ci.yml
+# (x86-64-v2). Do not delete these native flags for the local box.
 [build]
 rustflags = ["-C", "target-cpu=native"]
 

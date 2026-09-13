@@ -6,12 +6,27 @@ on:
   pull_request:
     branches: [main]
 
+# GitHub-hosted CPUs are not the 3900X. Committed .cargo/config.toml uses
+# target-cpu=native (local box only). CI replaces that file before rust-cache
+# so a partial cache restore cannot run a SIGILL binary.
+env:
+  RUSTFLAGS: "-C target-cpu=x86-64-v2"
+
 jobs:
   test:
     name: cargo test --workspace
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: portable ISA (not 3900X native)
+        run: |
+          mkdir -p .cargo
+          printf '%s\n' \
+            '[build]' \
+            'rustflags = ["-C", "target-cpu=x86-64-v2"]' \
+            '[target.x86_64-unknown-linux-gnu]' \
+            'rustflags = ["-C", "target-cpu=x86-64-v2"]' \
+            > .cargo/config.toml
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: test
@@ -22,6 +37,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: portable ISA (not 3900X native)
+        run: |
+          mkdir -p .cargo
+          printf '%s\n' \
+            '[build]' \
+            'rustflags = ["-C", "target-cpu=x86-64-v2"]' \
+            '[target.x86_64-unknown-linux-gnu]' \
+            'rustflags = ["-C", "target-cpu=x86-64-v2"]' \
+            > .cargo/config.toml
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: mesa vulkan
